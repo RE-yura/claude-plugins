@@ -10,6 +10,7 @@ on:
     paths:
       - "plugins/dev-workflow/**"
       - ".github/workflows/test.yml"
+  workflow_dispatch:
 
 jobs:
   dev-workflow:
