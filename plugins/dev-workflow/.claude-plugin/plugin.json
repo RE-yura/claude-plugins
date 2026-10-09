@@ -1,0 +1,9 @@
+{
+  "name": "dev-workflow",
+  "version": "1.4.0",
+  "description": "設計は brainstorming→writing-plans、実装委譲は Codex (herdr + /goal) という開発運用ルールを、常時注入 hook と delegating-to-codex スキルで全プロジェクトに配布する",
+  "author": {
+    "name": "yura",
+    "url": "https://github.com/RE-yura"
+  }
+}

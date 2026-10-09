@@ -1,0 +1,35 @@
+{
+  "verified_at": "2026-09-24",
+  "dependencies": {
+    "herdr": {
+      "verified": "0.9.1",
+      "policy": "same-minor",
+      "check": "herdr --version",
+      "note": "minor が変わると CLI が破壊的に変わる（0.7.4→0.7.5→0.8.0 で実証。0.8.2→0.9.0 は使用コマンドの引数は不変だが prompt --wait の stalled 判定厳密化・workspace close --group・protocol 20→22。0.9.1 は SSH/Windows/UI 中心で使用コマンドの引数は不変）。WARN 時は herdr --skill と各コマンドの usage を workflow.md と突き合わせる。herdr status で client/server の整合も見る（旧 client が PATH に残ると protocol_mismatch）"
+    },
+    "codex": {
+      "verified": "0.156.1",
+      "policy": "minimum",
+      "minimum": "0.144.0",
+      "check": "codex --version",
+      "note": "0.144+ で /goal (feature goals) が既定有効。self-update で実機が検証済みより先行しがち"
+    },
+    "superpowers": {
+      "verified": "6.4.1",
+      "policy": "same-major",
+      "check": "plugin cache (~/.claude/plugins/cache/*/superpowers/)",
+      "note": "brainstorming / writing-plans スキルの提供元"
+    },
+    "claude": {
+      "verified": "2.1.281",
+      "policy": "info",
+      "check": "claude --version",
+      "note": "Claude Code CLI。hook（SessionStart / UserPromptSubmit）の実行環境。頻繁に更新されるため報告のみで WARN にしない。minor が変わったら hook が発火しているか確認して verified を更新する"
+    },
+    "jq": {
+      "policy": "presence",
+      "check": "jq --version",
+      "note": "herdr の JSON 出力のパース"
+    }
+  }
+}

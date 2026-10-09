@@ -1,0 +1,15 @@
+{
+  "name": "re-yura",
+  "description": "yura の Claude Code プラグイン marketplace（開発運用ルール・ワークフロー配布用）",
+  "owner": {
+    "name": "yura",
+    "url": "https://github.com/RE-yura"
+  },
+  "plugins": [
+    {
+      "name": "dev-workflow",
+      "source": "./plugins/dev-workflow",
+      "description": "開発運用ルール一式: 設計ドキュメントは brainstorming→writing-plans、Codex への実装委譲は herdr + /goal (delegating-to-codex スキル)。SessionStart でルールを常時注入し、委譲キーワードでスキル使用をリマインドする。"
+    }
+  ]
+}

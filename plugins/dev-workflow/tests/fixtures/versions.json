@@ -1,0 +1,35 @@
+{
+  "verified_at": "2026-08-04",
+  "dependencies": {
+    "herdr": {
+      "verified": "0.8.0",
+      "policy": "same-minor",
+      "check": "herdr --version",
+      "note": "テスト用 fixture（実物の skills/delegating-to-codex/versions.json とは独立）"
+    },
+    "codex": {
+      "verified": "0.145.0",
+      "policy": "minimum",
+      "minimum": "0.144.0",
+      "check": "codex --version",
+      "note": "テスト用 fixture"
+    },
+    "superpowers": {
+      "verified": "6.3.0",
+      "policy": "same-major",
+      "check": "plugin cache (~/.claude/plugins/cache/*/superpowers/)",
+      "note": "テスト用 fixture"
+    },
+    "claude": {
+      "verified": "2.1.200",
+      "policy": "info",
+      "check": "claude --version",
+      "note": "テスト用 fixture"
+    },
+    "jq": {
+      "policy": "presence",
+      "check": "jq --version",
+      "note": "テスト用 fixture"
+    }
+  }
+}

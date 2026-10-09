@@ -1,0 +1,32 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/dev-workflow/**"
+      - ".github/workflows/test.yml"
+  pull_request:
+    paths:
+      - "plugins/dev-workflow/**"
+      - ".github/workflows/test.yml"
+
+jobs:
+  dev-workflow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: シェルスクリプトの構文チェック
+        run: |
+          find plugins/dev-workflow -name '*.sh' -print0 | xargs -0 -n1 bash -n
+
+      - name: JSON の構文チェック
+        run: |
+          find plugins/dev-workflow -name '*.json' -print0 | xargs -0 -n1 jq empty
+
+      - name: check-versions.sh のテスト
+        run: plugins/dev-workflow/tests/test-check-versions.sh
+
+      - name: prompt-rules-reminder.sh のテスト
+        run: plugins/dev-workflow/tests/test-prompt-rules-reminder.sh
