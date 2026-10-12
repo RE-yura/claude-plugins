@@ -499,7 +499,7 @@ HERDR_TASK_BLOCKED:<TASK_ID>
 
 ## 9. Codex agent の起動
 
-Claude Code は、§6 で控えた **worktree workspace の root pane** に Codex を起動する。
+Claude Code は、§6 で控えた **Codex 用タブ（herdr 外からなら単独 workspace）の root pane** に Codex を起動する。
 0.7.5+ の `agent start` は既存 pane への起動が必須で（`--kind` と `--pane` が必須、
 `--cwd` / `--no-focus` / pane 自動生成は廃止）、cwd は pane から引き継がれる。
 
@@ -522,8 +522,11 @@ agent を検出し対話入力可能と判断してから返る**（公式仕様
 
 **起動確認（必ず行う）。** start が返っても、Codex が**ダイアログを表示したまま
 `idle` で止まっている**ことがあるため、visible read で画面を見てから送信する。
-どのダイアログも status は `idle` のままで `blocked` にならず、状態待ちでは
-検出できない（0.8.0 実測）。
+0.8.0〜0.9.1 ではどのダイアログも status は `idle` のままで `blocked` にならず、
+状態待ちでは検出できなかった。0.9.3（検出 manifest 2026.10.11.1）では trust と
+アップデートのダイアログは `blocked` と判定されるようになった（2026-10-13 実測。
+`herdr agent explain` で判定ルールが見える）。どちらにしても状態だけに頼らず、
+visible read で画面を見て判断する。
 
 1. self-update 即終了（§5）→ `agent get` が `agent_not_found` → 再 start。
 2. **対話式アップデートダイアログ**（§5）→ そのまま送信すると Enter が
@@ -536,6 +539,22 @@ agent を検出し対話入力可能と判断してから返る**（公式仕様
    #44746 / #44755）。2026-09-24 の E2E（permissions: YOLO mode）では trust も
    アップデートダイアログも出ずに「›」が表示された。文言が変わっても「visible read
    で画面を見てから送る」原則は同じ。
+4. **共有デーモンの設定不一致ダイアログ**（codex-cli 0.160 実測: "Background server
+   has incompatible feature settings"、選択肢 "1. Run without daemon this time /
+   2. Restart with these settings / 3. Cancel"、既定は Cancel）→
+   `pane send-text "$PANE_ID" "1"` で「今回はデーモンなしで実行」を選ぶ。2 は共有の
+   バックグラウンドサーバーを再起動し、他の Codex セッションの作業を中断し得るので
+   選ばない。
+5. **hooks のレビュー画面**（codex-cli 0.160 実測: "Hooks … N hooks need review
+   before they can run"）→ `agent send-keys "$AGENT" esc` で閉じる。trust の判断は
+   ユーザーの Codex 設定に保存されるので、Claude Code が `t`（trust all）を押さない。
+   **この画面は起動確認の後に遅れて出ることがあり、出ている間に送った `/goal` は
+   飲み込まれる。そのとき `agent prompt --wait` は `done` で返る**（偽の完了）。
+   marker が見つからなければ visible read で画面を確認し、閉じてから送り直す。
+
+アップデートダイアログは codex-cli 0.160 では `pane send-text "$PANE_ID" "2"` だけで
+Skip され、Enter は不要だった（2026-10-13 実測）。送った後は visible read で入力欄
+「›」が出ていることを確かめる。
 
 ```bash
 # 生存確認（self-update 終了なら agent_not_found が返る → 再 start）
@@ -555,16 +574,16 @@ herdr agent send-keys "$AGENT" enter
 補足:
 
 - 0.7.4 まで必要だった「pane move --new-tab --workspace による自 workspace への
-  回収」は不要になった。worktree create が作る workspace（1レーン = 1 workspace）
-  がそのまま Codex の置き場所になり、herdr のサイドバーで workspace ごとの
-  working / blocked / done が見える。
+  回収」は不要。§6 で委譲元 workspace に作ったタブ（1レーン = 委譲元 workspace の
+  タブ 1 つ）がそのまま Codex の置き場所になる。Codex の状態は委譲元 workspace の
+  行に集約され、Agents パネルには Codex agent が個別に表示される。
 - ID は `w1`（workspace）/ `w1:t1`（tab）/ `w1:p1`（pane）形式の opaque handle
   （0.8.0 公式）。閉じた tab/pane の ID は再利用されない。**別 workspace へ move
   した pane は新しい workspace 修飾 ID を受け取る** — 旧 ID は移動したプロセスの
   caller context 経由でしか解決されないので、一般のターゲットに使わない。移動後は
   `pane move` の応答 `.result.move_result.pane.pane_id` か agent 名を正とする。
-- タブはその pane を閉じると自動で消える（実測）ので、cleanup は従来どおり
-  `herdr pane close` だけでよい。
+- タブはその中の最後の pane を閉じると自動で消える（0.9.3 実測）ので、cleanup は
+  `herdr pane close` だけでよい（§15）。
 
 ---
 
@@ -734,7 +753,7 @@ hunk CLI が導入済みの環境（`which hunk` で確認）では、Claude Cod
 ```bash
 # Codex worktree の未コミット差分を人間用に表示。
 # agent start は --kind（既知エージェント種別）必須のため、hunk のような
-# 任意 TUI は agent start では起動できない。worktree workspace の root pane を
+# 任意 TUI は agent start では起動できない。Codex タブの root pane を
 # split して pane run で起動する。
 HUNK_PANE="$(herdr pane split "$PANE_ID" --direction right --cwd "$WT" --no-focus \
   | jq -r '.result.pane.pane_id')"
@@ -746,7 +765,7 @@ printf '%s\n' '{"comments":[{"filePath":"src/x.ts","newLine":12,"summary":"REVIE
   | hunk session comment apply --repo "$WT" --stdin
 ```
 
-指摘の summary には `REVIEW-N.md` の項番を含め、対応関係を保つこと。session CLI の全コマンド（navigate / reload / comment 等）は `hunk skill path` で表示される同梱スキルが正本。**REVIEW-N.md が正本であることは変わらない** — hunk 注釈は人間が diff 上で指摘を追うための補助であり、レビュー記録の代替ではない。レビュー完了後（APPROVED / ABORTED）は hunk pane も `herdr pane close` で片付ける（split で増やした pane を閉じても Codex の root pane には影響しない）。
+指摘の summary には `REVIEW-N.md` の項番を含め、対応関係を保つこと。session CLI の全コマンド（navigate / reload / comment 等）は `hunk skill path` で表示される同梱スキルが正本。**REVIEW-N.md が正本であることは変わらない** — hunk 注釈は人間が diff 上で指摘を追うための補助であり、レビュー記録の代替ではない。レビュー完了後（APPROVED / ABORTED）は hunk pane も `herdr pane close` で片付ける（split で増やした pane を閉じても Codex の root pane には影響しない。逆に hunk pane を閉じ忘れると、Codex pane を閉じてもタブが残る。§15）。
 
 ---
 
@@ -883,6 +902,16 @@ git -C "$WT" diff \
 herdr pane close "$PANE_ID"
 ```
 
+pane close の結果（§6 の `LANE_KIND` 別。0.9.3 実測）:
+
+```text
+tab:       タブの最後の pane なのでタブが消える。委譲元のタブ（Claude Code 自身）が
+           残っているので、委譲元 workspace は閉じない。
+workspace: workspace の最後の pane なので workspace も閉じる。
+```
+
+§13.1 で hunk pane を split した場合は、先にそれも閉じる（残っているとタブが消えない）。
+
 作業を中止する場合は、いきなり閉じずに可能なら Codex に pause を送る。
 
 ```bash
@@ -927,60 +956,60 @@ git -C "$WT" commit -m "<type>: <PLAN.md の Objective 要約> ($TASK_ID)"
 pane close と worktree remove は別物である。
 
 ```text
-pane close:
-  Codex のプロセス・画面を閉じる。
-  Claude Code の最終レビュー後に行う。
-  重要: workspace の最後の pane（tab）を閉じると workspace も自動で閉じる
-  （0.8.0 で CLI/API からの close も TUI と同挙動になることが公式化。
-  #1899）。checkout は残る。
-
-workspace close:
-  Herdr 側の workspace state を閉じる。
-  Git checkout を削除するものではない。
-  0.9.0: primary workspace（repo root で開いたもの）を、その linked worktree
-  workspace が開いたまま閉じようとすると workspace_group_close_required で
-  拒否される。本フローで閉じるのは linked 側だけなので通常は当たらない。
-  --group は primary と linked 全部をまとめて閉じるフラグであり、
-  エラー回避のために付けてはいけない（ユーザーが明示した場合のみ）。
+pane close（§15）:
+  Codex のプロセス・画面を閉じる。Claude Code の最終レビュー後に行う。
+  Codex 用タブ（単独 workspace の場合は workspace）も一緒に消える。checkout は残る。
 
 worktree remove:
-  Git worktree checkout を削除する。
-  merge / PR / reject が終わった後だけ行う。
-  0.9.0: --trust-repository（1リクエスト限りの Git trust）が全 worktree
-  サブコマンドに追加された。失敗時の再試行フラグではなく、ユーザーが
-  リポジトリを確認済みのときだけ使う。
+  Git worktree checkout を削除する。merge / PR / reject が終わった後だけ行う。
+  必ず pane close の後に行う（Codex が中で動いたままディレクトリを消さない）。
 ```
 
 作業ブランチを採用する前に worktree を消さない。
 
-merge / PR / reject が終わった後の checkout 削除は、**workspace が既に閉じているか
-どうか**で手段が分かれる（本フローでは Codex が worktree workspace の唯一の
-pane に居るため、§15 の pane close で workspace は自動的に閉じている・実測。
-その状態で `herdr worktree remove --workspace` を叩くと `workspace_not_found`）。
-
 ```bash
-# 通常経路: §15 の pane close 済み（workspace は消滅済み）→ git 側で消す
 git -C "$ROOT" worktree remove "$WT"
 git -C "$ROOT" branch -d "$BRANCH"   # merge 済みの場合。reject なら -D
-
-# workspace がまだ開いている場合（pane を閉じずに中止した等）
-# → herdr worktree remove が checkout 削除と workspace close を両方行う
-herdr worktree remove --workspace "$WS_ID"
-# pane 内でプロセスが生きていて拒否される場合のみ --force
-herdr worktree remove --workspace "$WS_ID" --force
 ```
 
-**workspace が開いたまま git 側だけで checkout を消してはいけない。**
-herdr の spaces サイドバーに参照先のないゾンビ workspace が残り続ける
-（実測: 20個以上溜まった事例あり）。その場合は `herdr workspace close "$WS_ID"`
-で片付ける。
+- `.ai/` は info/exclude で無視されているので、残っていても `worktree remove` は
+  `--force` なしで通る（2026-10-13 実測）。ただし checkout ごと消えるので、残したい
+  ログは事前に退避しておく。
+- Git が未コミットの変更を理由に拒否した場合、`git -C "$ROOT" worktree remove --force "$WT"`
+  を使うのは、`logs/final.diff` を保存済みで、かつ人間が破棄を選んだときだけにする。
+- pane を閉じずに中止した場合（§14.3 等）も、先に `herdr pane close "$PANE_ID"` してから
+  上記を行う。
+
+### 17.1 旧方式（1.4.x 以前）のレーンの片付け
+
+1.4.x 以前の本手順は `herdr worktree create` でレーンを作っていた。そのとき作られた
+worktree グループの子 workspace（`is_linked_worktree: true`）が残っている場合は、
+次のルールで片付ける。
+
+```text
+workspace がまだ開いている:
+  herdr worktree remove --workspace <id> で checkout と workspace を両方消す
+  （pane 内でプロセスが生きていて拒否される場合のみ --force）。
+workspace は閉じている:
+  git worktree remove + branch -d で消す（herdr worktree remove は workspace_not_found）。
+workspace が開いたまま git 側だけ消した:
+  参照先のないゾンビ workspace が残る → herdr workspace close <id>。
+workspace close --group:
+  primary と linked をまとめて閉じるフラグ。workspace_group_close_required の
+  エラー回避のために付けてはいけない（ユーザーが明示した場合のみ）。
+--trust-repository:
+  1リクエスト限りの Git trust。失敗時の再試行フラグではなく、ユーザーが
+  リポジトリを確認済みのときだけ使う。
+herdr worktree create:
+  引数なしでも既定値で worktree を即作成する（0.7.4 実測）。usage 確認目的で叩かない。
+```
 
 ゾンビ workspace の検出と一括掃除:
 
 ```bash
-# linked worktree の workspace だけを対象にする。0.8.0 では repo root で開いた
-# 通常の workspace にも worktree オブジェクトが付く（is_linked_worktree: false・
-# 実測）ため、`.worktree != null` では通常 workspace まで対象に含めてしまう。
+# linked worktree の workspace だけを対象にする。repo root で開いた通常の
+# workspace にも worktree オブジェクトが付く（is_linked_worktree: false）ため、
+# `.worktree != null` では通常 workspace まで対象に含めてしまう。
 # is_linked_worktree == true で絞ること（true 判定なので jq の // は使わない —
 # false // x は x になる）。
 herdr workspace list \
