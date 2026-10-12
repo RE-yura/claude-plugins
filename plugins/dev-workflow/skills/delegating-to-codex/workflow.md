@@ -352,8 +352,13 @@ fi
 
 # エラー JSON（protocol_mismatch 等は exit 0 で返る）で "null" を拾わないよう // empty を付ける
 PANE_ID="$(printf '%s' "$CREATED" | jq -r '.result.root_pane.pane_id // empty')"
-test -n "$PANE_ID"
+test -n "$PANE_ID" || { printf 'lane create failed: %s\n' "$CREATED" >&2; false; }
 ```
+
+- tab create / workspace create が失敗した場合（`herdr status` の protocol_mismatch 等）、
+  worktree とブランチは既にできている。原因を直して tab create だけ再実行する（新しい
+  TASK_ID でやり直さない。孤児 worktree が増える）。やり直す場合は先に
+  `git -C "$ROOT" worktree remove "$WT" && git -C "$ROOT" branch -D "$BRANCH"` で片付ける。
 
 - root pane の cwd は worktree checkout そのものなので、そのまま Codex の作業ディレクトリになる（0.9.3 実測）。
 - `HERDR_PANE_ID` があれば `pane current` は caller context で解決される（pane move 後の
@@ -552,6 +557,9 @@ visible read で画面を見て判断する。
    **この画面は起動確認の後に遅れて出ることがあり、出ている間に送った `/goal` は
    飲み込まれる。そのとき `agent prompt --wait` は `done` で返る**（偽の完了）。
    marker が見つからなければ visible read で画面を確認し、閉じてから送り直す。
+   esc で閉じたレーンでは、レビューされていない hooks が動かない。閉じたことと
+   その影響（このレーンではユーザーの hooks が動かない）を REVIEW-N.md と人間への
+   報告に書く。恒久的に有効にしたい場合は、人間が Codex を直接起動して一度レビューする。
 
 アップデートダイアログは codex-cli 0.160 では `pane send-text "$PANE_ID" "2"` だけで
 Skip され、Enter は不要だった（2026-10-13 実測）。送った後は visible read で入力欄
@@ -661,7 +669,7 @@ blocked を検出したら、BLOCKED.md と pane output を読み、必要な入
 unknown が続く場合は、herdr agent explain を使うか、pane output を保存して人間に状態を報告する。
 marker がないが CODEX_DONE.md と diff が妥当なら、レビューに進んでよい。ただし REVIEW.md に marker missing と書く。
 marker がエコー行（• Goal active Objective: ...）でしか見つからない場合は、marker 未達として扱う。
-CODEX_DONE.md がない場合は、実装完了とみなさず、FIX-N.md で作成を求める。
+CODEX_DONE.md がない場合は、実装完了とみなさず、FIX-N.md で作成を求める（ただし diff も無いなら先に §18.2 の確認を行う）。
 ```
 
 ---
@@ -981,9 +989,9 @@ git -C "$ROOT" branch -d "$BRANCH"   # merge 済みの場合。reject なら -D
 - pane を閉じずに中止した場合（§14.3 等）も、先に `herdr pane close "$PANE_ID"` してから
   上記を行う。
 
-### 17.1 旧方式（1.4.x 以前）のレーンの片付け
+### 17.1 旧方式（2026-10-13 改訂（skill 1.4.0 / plugin 1.5.0）より前）のレーンの片付け
 
-1.4.x 以前の本手順は `herdr worktree create` でレーンを作っていた。そのとき作られた
+2026-10-13 改訂（skill 1.4.0 / plugin 1.5.0）より前の本手順は `herdr worktree create` でレーンを作っていた。そのとき作られた
 worktree グループの子 workspace（`is_linked_worktree: true`）が残っている場合は、
 次のルールで片付ける。
 
@@ -1044,6 +1052,12 @@ agent read で「goal blocked」系の表示を確認し、FIX-N.md で具体的
 ### 18.2 Codex が done / idle だが CODEX_DONE.md がない
 
 実装完了とみなさない。
+
+ただし diff も CODEX_DONE.md も無く marker も無い done は、goal が Codex の
+ダイアログ（hooks レビュー画面等）に飲み込まれた可能性が高い（§9-5）。まず visible
+read で画面を確認し、ダイアログを閉じてから同じ goal を送り直す。この送り直しは
+修正ループのラウンドに数えない。Codex が goal を実行したのに CODEX_DONE.md が無い
+場合だけ、次を返す。
 
 ```text
 Status: CHANGES_REQUESTED

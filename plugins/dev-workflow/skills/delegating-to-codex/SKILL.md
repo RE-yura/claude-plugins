@@ -47,7 +47,7 @@ Claude Code が実装計画を書き、Herdr 経由で Codex CLI の `/goal` に
 - **0.7.4 の起動手順を使わない** — `agent start --cwd ... -- codex` は 0.7.5+ で無効（`--kind` と `--pane` が必須）。Codex 用タブの root pane に起動する。pane move による回収も不要になった。
 - **`--status` フラグを使わない** — 0.7.5 で `--until` に改名。`herdr wait output` / `herdr wait agent-status` も廃止（→ `pane wait-output` / `agent wait --until`）。
 - **`--json` フラグを付けない** — 0.8.0 で JSON がデフォルト出力になり廃止（worktree 系のみ互換で受理。`workspace list --json` 等は usage エラー）。
-- **起動直後にいきなり送信しない** — ①codex が self-update して即終了することがある（`agent_not_found`）。②**対話式アップデートダイアログ**（0.146 実測）や fresh worktree の **trust 確認ダイアログ**が出ても **status は `idle` のままで `blocked` にならない**（0.9.1 以前。0.9.3 + 検出 manifest 2026.10.11.1 では trust / アップデートは `blocked` と判定される。どちらでも状態だけに頼らない）。visible read で検出し、アップデートは `pane send-text "2"` + `agent send-keys enter` で Skip（Enter 即送信は「Update now」を選んでしまう。codex-cli 0.160 は "2" だけで Skip）、trust は enter で承認。③codex-cli 0.160 では共有デーモンの設定不一致ダイアログ（`pane send-text "1"` = 今回はデーモンなし。"2" の Restart は他の Codex セッションを中断し得る）と hooks レビュー画面（`agent send-keys esc`。trust all の `t` は押さない）も出る。**hooks 画面は起動確認の後に遅れて出て goal を飲み込み、`prompt --wait` が done を返す** — marker がなければ画面を確認する。なお旧版の「TUI 初期化中のプロンプトが無音で消えて偽 done」問題は 0.8.0 で修正され、届かない場合は `agent_prompt_stalled` エラーが返る。
+- **起動直後にいきなり送信しない** — ①codex が self-update して即終了することがある（`agent_not_found`）。②**対話式アップデートダイアログ**（0.146 実測）や fresh worktree の **trust 確認ダイアログ**が出ても **status は `idle` のままで `blocked` にならない**（0.9.1 以前。0.9.3 + 検出 manifest 2026.10.11.1 では trust / アップデートは `blocked` と判定される。どちらでも状態だけに頼らない）。visible read で検出し、アップデートは `pane send-text "2"` + `agent send-keys enter` で Skip（Enter 即送信は「Update now」を選んでしまう。codex-cli 0.160 は "2" だけで Skip）、trust は enter で承認。③codex-cli 0.160 では共有デーモンの設定不一致ダイアログ（`pane send-text "1"` = 今回はデーモンなし。"2" の Restart は他の Codex セッションを中断し得る）と hooks レビュー画面（`agent send-keys esc`。trust all の `t` は押さない。閉じたレーンでは hooks が動かないので、そのことを REVIEW-N.md と人間への報告に書く）も出る。**hooks 画面は起動確認の後に遅れて出て goal を飲み込み、`prompt --wait` が done を返す** — marker がなければ画面を確認する。なお旧版の「TUI 初期化中のプロンプトが無音で消えて偽 done」問題は 0.8.0 で修正され、届かない場合は `agent_prompt_stalled` エラーが返る。
 - **完了を `idle` 前提で待たない** — CLI 駆動では完了は通常 `done`（0.8.0 公式: done = 未読のまま作業が終わった idle。CLI read では既読にならない）。`prompt --wait` / `agent wait` の返り値の状態で分岐。
 - **marker を素の substring / `--match` で待たない** — goal 本文に marker を含めるため、エコー行（`• Goal active Objective: ...`）に即偽マッチする（0.8.0 実測で再確認）。行頭アンカー付き `--regex "^• HERDR_TASK_DONE:<id>"` を使い、matched_line を確認。
 - **`agent read` / `pane read` の出力を jq に通さない** — 0.7.5+ でどちらも plain text（`jq -r '.result.read.text'` は parse error）。`agent get` / `tab create` 等は従来どおり JSON。
@@ -56,7 +56,7 @@ Claude Code が実装計画を書き、Herdr 経由で Codex CLI の `/goal` に
 - **terminal id（`term_...`）を保存して使い回さない** — herdr 再起動で変わる。ターゲットは agent 名を正とする。
 - **`/goal` に計画全文を貼らない** — 計画はファイルに書き、1行の `/goal` で参照させる（bracketed paste で複数行送信は可能になったが、レビュー可能性のためファイル契約を維持）。
 - **PLAN.md をスキル無しで書かない** — 事前に superpowers:brainstorming、執筆は superpowers:writing-plans（運用ルール）。
-- **checkout は pane close の後に git で消す** — Codex pane を閉じるとタブ（単独 workspace なら workspace）も消える（0.9.3 実測）。merge / reject が済んでから `git worktree remove` + `branch -d`（reject は `-D`）。hunk pane を split していたら先に閉じる（残るとタブが消えない）。旧方式（1.4.x 以前）の worktree グループの片付けは workflow.md §17.1。
+- **checkout は pane close の後に git で消す** — Codex pane を閉じるとタブ（単独 workspace なら workspace）も消える（0.9.3 実測）。merge / reject が済んでから `git worktree remove` + `branch -d`（reject は `-D`）。hunk pane を split していたら先に閉じる（残るとタブが消えない）。旧方式（2026-10-13 改訂（skill 1.4.0 / plugin 1.5.0）より前）の worktree グループの片付けは workflow.md §17.1。
 
 ## Workflow Summary
 
