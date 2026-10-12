@@ -4,7 +4,7 @@
 
 Claude Code は、この文書を「実装委譲ワークフローの実行規約」として扱うこと。
 
-> 検証済み環境の正は同ディレクトリの [versions.json](versions.json)（herdr 0.9.1 / codex-cli 0.156.1 / superpowers 6.4.1 / Claude Code 2.1.281、2026-09-24 実機再検証・E2E 委譲一巡。過去: 0.9.0 / 0.8.2 / 0.8.0 / 0.7.5 / 0.7.1）。委譲開始前に必ず `check-versions.sh` を実行し、実機バージョンとのズレを検出すること（§5）。herdr の CLI はバージョンで大きく変わる（実例: 0.7.5 で `agent start` の署名変更・トップレベル `wait` 廃止・`agent prompt` 追加。0.8.0 で `prompt --wait` が主経路化・`--json` 廃止（JSON がデフォルト）・idle alternate-screen の自動履歴読み。0.9.0 は本書が使うコマンドの引数・出力は不変だが、`prompt --wait` の stalled 判定が厳密化（§2.3）、`workspace close --group` 追加（§17）、worktree 系に `--trust-repository` 追加、`--no-session` 廃止、client/server の protocol が 20→22 で分離・`herdr status` の出力キー変更。0.9.1 は SSH マシン操作・Windows・UI 中心で本書のコマンドは不変。Codex の状態検出が改善（入力欄の装飾で idle を blocked と誤判定しない #4092/#4099）、`worktree create --no-focus` は引き続き尊重される）。動かない場合はまず引数なし実行で usage を確認し、`herdr --skill`（0.8.0+、同梱の公式エージェント向け説明）と公式 https://herdr.dev/docs/agent-automation/ に突き合わせること。ただし **`herdr worktree create` だけは引数なしでも既定値で即実行される**ので usage 確認目的で叩かないこと（0.7.4 実測）。
+> 検証済み環境の正は同ディレクトリの [versions.json](versions.json)（herdr 0.9.3 / codex-cli 0.160.0 / superpowers 6.4.1 / Claude Code 2.1.296、2026-10-13 実機再検証・E2E 委譲一巡。過去: 0.9.1 / 0.9.0 / 0.8.2 / 0.8.0 / 0.7.5 / 0.7.1）。委譲開始前に必ず `check-versions.sh` を実行し、実機バージョンとのズレを検出すること（§5）。herdr の CLI はバージョンで大きく変わる（実例: 0.7.5 で `agent start` の署名変更・トップレベル `wait` 廃止・`agent prompt` 追加。0.8.0 で `prompt --wait` が主経路化・`--json` 廃止（JSON がデフォルト）・idle alternate-screen の自動履歴読み。0.9.0 は本書が使うコマンドの引数・出力は不変だが、`prompt --wait` の stalled 判定が厳密化（§2.3）、`workspace close --group` 追加（§17）、worktree 系に `--trust-repository` 追加、`--no-session` 廃止、client/server の protocol が 20→22 で分離・`herdr status` の出力キー変更。0.9.1 は SSH マシン操作・Windows・UI 中心で本書のコマンドは不変。Codex の状態検出が改善（入力欄の装飾で idle を blocked と誤判定しない #4092/#4099）、`worktree create --no-focus` は引き続き尊重される。0.9.3 は本書が使うコマンドの引数は不変。**2026-10-13 改訂: Codex レーンは `herdr worktree create` ではなく `git worktree add` + 委譲元 workspace のタブ（`herdr tab create --workspace`）に作る**（herdr の worktree グループはリポジトリ単位で親を選び、同じリポジトリの workspace が複数あると委譲元とは別の workspace の下に表示されるため。§6））。動かない場合はまず引数なし実行で usage を確認し、`herdr --skill`（0.8.0+、同梱の公式エージェント向け説明）と公式 https://herdr.dev/docs/agent-automation/ に突き合わせること。ただし **`herdr worktree create` は引数なしでも既定値で即実行される**ので（本流では使わないが）usage 確認目的で叩かないこと（0.7.4 実測。§17.1）。
 
 ---
 
@@ -294,7 +294,8 @@ goals = true
   agent は `agent_not_found` になる → 同じ pane にもう一度 `agent start`）。
 - **対話式アップデートダイアログ**を出して止まる（0.145→0.146 で実測:
   「1. Update now / 2. Skip / 3. Skip until next version — Press enter to
-  continue」）。このとき status は `idle` のままで `blocked` にならず、
+  continue」）。このとき status は `idle` のままで `blocked` にならず（0.9.3 + 検出 manifest
+  2026.10.11.1 では `blocked` と判定される。§9）、
   **そのまま /goal を送ると Enter が「1. Update now」を選んでしまう**。
   visible read で検出し、`pane send-text <pane_id> "2"` + `agent send-keys
   <agent> enter` で Skip してから送信する。
@@ -1095,17 +1096,18 @@ Codex がこれらを実行しようとして blocked になった場合、Claud
 
 ```text
 [ ] task id を作る
-[ ] Git worktree を作る（応答 JSON から root pane id と workspace id を控える。--json は付けない）
-[ ] worktree の .git/info/exclude に .ai/ を足す
+[ ] git worktree add で Git worktree を作り、.git/info/exclude に .ai/ を足す（herdr worktree create は使わない）
+[ ] 委譲元 workspace に Codex 用タブを作る（HERDR_PANE_ID があれば pane current → tab create --workspace、なければ workspace create。応答 JSON の root pane id を // empty 付きで控える。--json は付けない）
 [ ] Codex worktree 内に .ai/tasks/<TASK_ID>/ を作る
 [ ] superpowers:brainstorming で要件・設計を固める
 [ ] superpowers:writing-plans に従って PLAN.md を書く
 [ ] CODEX_GOAL.md を書く
-[ ] worktree の root pane に Codex を起動する（agent start --kind codex --pane）
+[ ] Codex 用タブの root pane に Codex を起動する（agent start --kind codex --pane）
 [ ] 起動確認: agent get で生存確認（self-update 終了なら再 start）
 [ ] 起動確認: visible read でダイアログの有無と入力プロンプト「›」を確認する
-    （アップデートダイアログは "2" + enter で Skip、trust ダイアログは enter で承認。
-      どちらも idle のままで blocked にならない）
+    （アップデートは "2" で Skip（0.160 は Enter 不要）、trust は enter で承認、
+      デーモン設定不一致は "1"、hooks レビュー画面は esc。状態は 0.9.1 以前は idle の
+      まま、0.9.3 では trust/アップデートが blocked。状態だけに頼らない。§9）
 [ ] 1行の /goal を agent prompt --wait --timeout 1800000 で送る
     （agent_prompt_stalled / timeout なら visible read で画面確認 → 送達済みか
       判断 → ダイアログ対処・Enter のみ・agent wait 合流のいずれか。§2.3）
@@ -1117,14 +1119,11 @@ Codex がこれらを実行しようとして blocked になった場合、Claud
 [ ] 最大3ラウンドまで繰り返す
 [ ] APPROVED なら REVIEW-FINAL.md を書く
 [ ] final logs を保存する
-[ ] Codex pane を閉じる
+[ ] Codex pane を閉じる（hunk pane を split していれば先に閉じる。タブも消える）
 [ ] Claude Code が worktree でコミットする（.ai/ 混入なしを git status で確認）
 [ ] finishing-a-development-branch で merge / PR / reject を人間に確認する
 [ ] worktree は merge / PR / reject まで残す
-[ ] merge / reject 後の checkout 削除: pane close 済みなら workspace は消滅済みなので
-    git worktree remove + branch -d で消す。workspace が開いたままなら
-    herdr worktree remove --workspace で checkout と workspace を両方消す
-    （workspace が開いたまま git 側だけ消すとゾンビ workspace が残る）
+[ ] merge / reject 後: git worktree remove + branch -d（reject は -D）で checkout とブランチを消す（必ず pane close の後）
 ```
 
 ---
@@ -1166,7 +1165,7 @@ shift || true
 case "$cmd" in
   start)
     task_id="${1:?task_id required}"
-    pane_id="${2:?pane_id required (worktree create の .result.root_pane.pane_id)}"
+    pane_id="${2:?pane_id required (tab create / workspace create の .result.root_pane.pane_id)}"
     task_dir="${3:?task_dir required}"
     agent="codex-$task_id"
     mkdir -p "$task_dir/logs"
@@ -1177,7 +1176,7 @@ case "$cmd" in
       | tee "$task_dir/logs/agent-start.json"
 
     # 起動確認: self-update 即終了なら agent_not_found。ダイアログ
-    # （アップデート/trust）は idle のまま止まるので画面を目視確認する。
+    # （アップデート/trust 等）は状態だけでは判断できないので画面を目視確認する。
     herdr agent get "$agent" | tee "$task_dir/logs/agent-get.json"
     herdr agent read "$agent" --source visible --lines 40
     ;;
@@ -1265,13 +1264,15 @@ Claude Code は、このワークフローでは次を厳守する。
 - Herdr は agent CLI を主軸にし、/goal は agent prompt --wait で送って待つ。
   pane CLI は pane 用意 / wait-output / send-text / close に使う。
 - socket API は初期実装では使わない。
-- Codex は worktree create の root pane に起動する（agent start --kind codex --pane）。
+- Codex レーンは git worktree add + 委譲元 workspace のタブ（tab create --workspace）に作り、その root pane に起動する（agent start --kind codex --pane）。herdr worktree create は使わない。
 - 起動直後に送信しない。生存確認と visible read（ダイアログ有無）を先に行う。
-  アップデート/trust ダイアログは idle のまま止まり blocked にならない。
+  ダイアログの状態判定（idle / blocked）は herdr の版と検出 manifest で変わるので、
+  状態だけに頼らず画面で判断する（§9）。hooks レビュー画面は遅れて出て goal を
+  飲み込み、prompt --wait が done を返すことがある — marker がなければ画面を確認する。
 - 完了待ちは agent prompt --wait（= agent wait の --until なしと同じ既定）。
   完了状態は通常 done（CLI 駆動では未読完了が done。0.8.0 公式セマンティクス）。
 - agent_prompt_stalled / timeout が返ったら画面確認 → 送達済みか判断 → 対処
-  （盲目的な再送はしない。§2.3）。偽 done は 0.8.0 以降ない。
+  （盲目的な再送はしない。§2.3）。herdr 側の偽 done は 0.8.0 以降ないが、goal が Codex のダイアログ（hooks レビュー画面等）に飲み込まれると done で返る（§9）。
 - agent read / pane read は plain text。jq を通さない（agent get 等の JSON とは別）。
   JSON がデフォルトなので --json は付けない。
 - marker 検出は行頭アンカー付き regex。substring / --match だと goal エコー行に

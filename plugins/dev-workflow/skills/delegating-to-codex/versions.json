@@ -1,18 +1,18 @@
 {
-  "verified_at": "2026-09-24",
+  "verified_at": "2026-10-13",
   "dependencies": {
     "herdr": {
-      "verified": "0.9.1",
+      "verified": "0.9.3",
       "policy": "same-minor",
       "check": "herdr --version",
-      "note": "minor が変わると CLI が破壊的に変わる（0.7.4→0.7.5→0.8.0 で実証。0.8.2→0.9.0 は使用コマンドの引数は不変だが prompt --wait の stalled 判定厳密化・workspace close --group・protocol 20→22。0.9.1 は SSH/Windows/UI 中心で使用コマンドの引数は不変）。WARN 時は herdr --skill と各コマンドの usage を workflow.md と突き合わせる。herdr status で client/server の整合も見る（旧 client が PATH に残ると protocol_mismatch）"
+      "note": "minor が変わると CLI が破壊的に変わる（0.7.4→0.7.5→0.8.0 で実証。0.8.2→0.9.0 は使用コマンドの引数は不変だが prompt --wait の stalled 判定厳密化・workspace close --group・protocol 20→22。0.9.1 は SSH/Windows/UI 中心で使用コマンドの引数は不変）。0.9.3 で委譲レーンを tab create --workspace 方式に変更して E2E 確認（pane current は HERDR_PANE_ID なしだと focused pane を返す。trust / アップデートダイアログは blocked と判定されるようになった）。WARN 時は herdr --skill と各コマンドの usage を workflow.md と突き合わせる。herdr status で client/server の整合も見る（旧 client が PATH に残ると protocol_mismatch）"
     },
     "codex": {
-      "verified": "0.156.1",
+      "verified": "0.160.0",
       "policy": "minimum",
       "minimum": "0.144.0",
       "check": "codex --version",
-      "note": "0.144+ で /goal (feature goals) が既定有効。self-update で実機が検証済みより先行しがち"
+      "note": "0.144+ で /goal (feature goals) が既定有効。self-update で実機が検証済みより先行しがち。0.160 で起動時に共有デーモン設定不一致ダイアログと hooks レビュー画面が出る（workflow.md §9）"
     },
     "superpowers": {
       "verified": "6.4.1",
@@ -21,7 +21,7 @@
       "note": "brainstorming / writing-plans スキルの提供元"
     },
     "claude": {
-      "verified": "2.1.281",
+      "verified": "2.1.296",
       "policy": "info",
       "check": "claude --version",
       "note": "Claude Code CLI。hook（SessionStart / UserPromptSubmit）の実行環境。頻繁に更新されるため報告のみで WARN にしない。minor が変わったら hook が発火しているか確認して verified を更新する"

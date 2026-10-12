@@ -13,7 +13,7 @@
 |---|---|
 | SessionStart hook | 上記ルール2本を毎セッション開始時に無条件で注入 |
 | UserPromptSubmit hook | プロンプトのキーワード（設計/実装/plan/codex/委譲 等）に応じてルールを just-in-time で再注入 |
-| `delegating-to-codex` スキル | 委譲ワークフローの正本。worktree 隔離、1行 `/goal`、完了検知（idle+marker）、REVIEW/FIX ループ、安全ルールまでの完全な手順書 |
+| `delegating-to-codex` スキル | 委譲ワークフローの正本。worktree 隔離、委譲元 workspace のタスク専用タブ、1行 `/goal`、完了検知（idle+marker）、REVIEW/FIX ループ、安全ルールまでの完全な手順書 |
 
 ## インストール
 
@@ -38,9 +38,9 @@ Claude Code セッション内なら:
 | 必要なもの | 検証済みバージョン | 何のために |
 |---|---|---|
 | [superpowers](https://github.com/obra/superpowers) プラグイン | 6.4.1（same-major） | brainstorming / writing-plans スキルの提供元（`claude plugin install superpowers@claude-plugins-official`） |
-| [herdr](https://herdr.dev) | 0.9.1（same-minor） | Codex を pane として起動・監視・操作（導入後 `herdr integration install codex`） |
-| [Codex CLI](https://developers.openai.com/codex/cli) | 0.156.1（minimum 0.144.0） | 実装担当（0.144+ は `/goal` 既定有効。slash command list に出ない場合のみ `codex features enable goals`） |
-| [Claude Code](https://docs.claude.com/en/docs/claude-code) | 2.1.281（info: 報告のみ） | hook（運用ルール注入）の実行環境。版が変わっても WARN にはしない |
+| [herdr](https://herdr.dev) | 0.9.3（same-minor） | Codex を pane として起動・監視・操作（導入後 `herdr integration install codex`） |
+| [Codex CLI](https://developers.openai.com/codex/cli) | 0.160.0（minimum 0.144.0） | 実装担当（0.144+ は `/goal` 既定有効。slash command list に出ない場合のみ `codex features enable goals`） |
+| [Claude Code](https://docs.claude.com/en/docs/claude-code) | 2.1.296（info: 報告のみ） | hook（運用ルール注入）の実行環境。版が変わっても WARN にはしない |
 | jq | 任意（presence） | herdr の JSON 出力のパース |
 
 検証済みバージョンの正（source of truth）は [`skills/delegating-to-codex/versions.json`](skills/delegating-to-codex/versions.json)。herdr は minor バージョンで CLI が破壊的に変わるため、委譲ワークフローは開始前に同梱の `check-versions.sh` で実機バージョンとのズレを検出する（WARN は警告であってブロックではない）。herdr については `herdr status` で client と server の整合も確認する（client だけ入れ替わった直後は全 API が `protocol_mismatch` になるため）。バージョンを上げて再検証したら versions.json を更新する。
