@@ -53,7 +53,7 @@ echo ".ai/" >> "$(git -C "$WT" rev-parse --git-path info/exclude)"
 # focused pane にフォールバックする）ので、HERDR_PANE_ID の有無で判定する。
 CALLER_WS=""
 if [ -n "${HERDR_PANE_ID:-}" ]; then
-  CALLER_WS="$(herdr pane current | jq -r '.result.pane.workspace_id // empty')"
+  CALLER_WS="$(herdr pane current 2>/dev/null | jq -r '.result.pane.workspace_id // empty' || true)"
 fi
 
 if [ -n "$CALLER_WS" ]; then
@@ -63,13 +63,14 @@ else
   CREATED="$(herdr workspace create --cwd "$WT" --label "$TASK_ID" --no-focus)"
   LANE_KIND=workspace
 fi
-PANE_ID="$(printf '%s' "$CREATED" | jq -r '.result.root_pane.pane_id')"
+PANE_ID="$(printf '%s' "$CREATED" | jq -r '.result.root_pane.pane_id // empty')"
 test -n "$PANE_ID"
 ```
 
 - `HERDR_PANE_ID` が設定されていれば `pane current` は caller context で解決される。pane move 後の旧 ID もこの経路なら解決できる。
 - `HERDR_PANE_ID` はあるが `pane current` が失敗した場合（stale ID 等）は `CALLER_WS` が空になり、単独 workspace にフォールバックする。
-- `tab create` と `workspace create` の応答はどちらも `.result.root_pane.pane_id` を持つ（CLI reference 記載）。
+- `tab create` と `workspace create` の応答はどちらも `.result.root_pane.pane_id` を持つ（CLI reference 記載）。herdr のエラー JSON（protocol_mismatch 等は exit 0 で返る）で文字列 `null` を拾わないよう `// empty` を付ける。
+- `|| true` は `set -euo pipefail` のスクリプトで `pane current` が失敗しても止まらず、フォールバックへ進むため。
 - 専用タブにする理由: 呼び元の作業中タブを分割すると、ユーザーの画面を狭め、並列委譲で破綻する。タブ名（TASK_ID）で委譲を見分けられ、片付けもペイン 1 つを閉じるだけで済む。
 
 ### 3.2 Codex 起動以降（§9〜§14）
