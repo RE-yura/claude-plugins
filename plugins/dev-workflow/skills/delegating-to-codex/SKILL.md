@@ -38,9 +38,9 @@ Claude Code が実装計画を書き、Herdr 経由で Codex CLI の `/goal` に
 | ダイアログ操作 | `herdr agent send-keys <name> enter`（0.8.0。pane send-keys でも可） |
 | レビュー可視化（任意） | root pane を `pane split` → `pane run <pane> "hunk diff"` で人間に見せ、`hunk session comment apply` で REVIEW 指摘をインライン注釈（要 hunk CLI のみ。workflow.md §13.1） |
 
-## Common Mistakes（すべて実測で確認済みの罠）
+## Common Mistakes（実測またはソースで確認済みの罠）
 
-- **委譲に `herdr worktree create` を使わない** — herdr の worktree グループはリポジトリ単位で親を選ぶので、同じリポジトリの workspace が複数あるとレーンが委譲元とは別の workspace の下に表示される（`--workspace` 指定でも直らない。2026-10-13 調査）。`git worktree add` + 委譲元 workspace のタブを使う。
+- **委譲に `herdr worktree create` を使わない** — herdr の worktree グループはリポジトリ単位で親を選ぶので、同じリポジトリの workspace が複数あるとレーンが委譲元とは別の workspace の下に表示される（`--workspace` 指定でも直らない。2026-10-13 ソース確認）。`git worktree add` + 委譲元 workspace のタブを使う。
 - **herdr の外で `pane current` を呼び元判定に使わない** — `HERDR_PANE_ID` がないとエラーにならずフォーカス中の pane を返す（0.9.3 実測）。`HERDR_PANE_ID` があるときだけ使い、なければ単独 workspace にする。
 - **`herdr --version` だけで環境 OK と判断しない** — client と server は別プロセス。mise 等で client を上げた直後は既存シェルの PATH に旧 client が残り、agent/workspace 系が全て `protocol_mismatch`（exit 0 の JSON エラー）になる（0.8.2→0.9.0 で実測）。`check-versions.sh` が `herdr status` で検出する。新しいシェルを開くか mise shims の herdr を使う。
 - **agent 名を 32 文字より長くしない** — `invalid_agent_name`（小文字始まり・小文字/数字/-/_・1〜32 文字。0.9.0 実測）。既定 TASK_ID + `codex-` でちょうど 32 なので、TASK_ID に suffix を足したら短縮する。

@@ -366,7 +366,9 @@ test -n "$PANE_ID" || { printf 'lane create failed: %s\n' "$CREATED" >&2; false;
   `pane_not_found`。0.9.3 実測）は `CALLER_WS` が空になり、単独 workspace に
   フォールバックする。`|| true` は `set -euo pipefail` のスクリプトでもここで
   止まらないため。
-- 単独 workspace は `worktree` が null で、どのグループにも属さない（0.9.3 実測）。
+- 単独 workspace は `worktree` が null で、どのグループにも属さない（0.9.3 実測。
+  workspace create は worktree の所属情報を付けない — 所属を付けるのは worktree 系の
+  API だけ。ソース確認）。
 - 作業中のタブを split しないのは、ユーザーの画面を狭め、並列委譲で破綻するため。
   タブ名（TASK_ID）で委譲を見分けられる。
 - `--no-focus` なので、ユーザーのフォーカス（active tab）は動かない（0.9.3 実測）。
@@ -943,7 +945,8 @@ herdr agent prompt "$AGENT" "/goal pause"
 2. superpowers:finishing-a-development-branch スキルを起動する
    - merge / PR / 保留 / 破棄 の選択肢を人間に提示し、決定に従う。
    - スキルが使えない環境では、同等の選択肢を人間に確認してから実行する。
-3. 決定を実行したら（merge 完了 / PR 作成 / reject）、§17 の worktree cleanup に進む
+3. 決定を実行したら（merge 完了 / reject）、§17 の worktree cleanup に進む。PR を作った場合は、
+   PR がマージ（またはクローズ）されるまで worktree を残し（レビュー対応の修正に使う）、その後 §17 に進む
 ```
 
 ```bash
@@ -980,6 +983,10 @@ worktree remove:
 git -C "$ROOT" worktree remove "$WT"
 git -C "$ROOT" branch -d "$BRANCH"   # merge 済みの場合。reject なら -D
 ```
+
+- PR を作った場合は、PR がマージされるまで worktree もブランチも消さない。マージ後に
+  上記（`branch -d`）を行う。PR をマージせずにクローズしたら reject と同じく `-D`
+  （PR 作成時に push 済みなので、ローカルを消してもリモートのブランチは残る）。
 
 - `.ai/` は info/exclude で無視されているので、残っていても `worktree remove` は
   `--force` なしで通る（2026-10-13 実測）。ただし checkout ごと消えるので、残したい

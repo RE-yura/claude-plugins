@@ -100,7 +100,7 @@ if command -v codex >/dev/null 2>&1; then
     if [ "$(major_minor "$codex_ver")" = "$(major_minor "$CODEX_VERIFIED")" ]; then
       say "OK      codex-cli ${codex_ver}（minimum ${CODEX_MINIMUM} 以上・検証済み ${CODEX_VERIFIED} と same-minor）"
     else
-      say "OK      codex-cli ${codex_ver}（minimum ${CODEX_MINIMUM} 以上。ただし検証済み ${CODEX_VERIFIED} と minor が異なる — 起動時ダイアログ等の挙動差に注意。workflow.md §14）"
+      say "OK      codex-cli ${codex_ver}（minimum ${CODEX_MINIMUM} 以上。ただし検証済み ${CODEX_VERIFIED} と minor が異なる — 起動時ダイアログ等の挙動差に注意。workflow.md §9）"
     fi
   else
     echo "WARN    codex-cli ${codex_ver} — minimum ${CODEX_MINIMUM} 未満。/goal が既定で使えない可能性（codex features enable goals を検討）"
