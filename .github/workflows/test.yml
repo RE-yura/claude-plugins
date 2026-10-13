@@ -31,3 +31,6 @@ jobs:
 
       - name: prompt-rules-reminder.sh のテスト
         run: plugins/dev-workflow/tests/test-prompt-rules-reminder.sh
+
+      - name: workflow.md の節番号参照のテスト
+        run: plugins/dev-workflow/tests/test-section-refs.sh
