@@ -1,7 +1,7 @@
 ---
 name: delegating-to-codex
 description: Use when delegating implementation, fixes, or refactoring to Codex CLI — e.g. the user says 「Codex に実装を委譲して」「Codex にやらせて」「herdr 経由で」, or Claude has finished planning a task whose implementation belongs to Codex per the team's role split (Claude = plan/review/verify, Codex = implement).
-version: "1.4.0"
+version: "1.4.1"
 ---
 
 # Delegating to Codex via Herdr + `/goal`
@@ -31,10 +31,10 @@ Claude Code が実装計画を書き、Herdr 経由で Codex CLI の `/goal` に
 | Codex 用タブ作成 + root pane 取得 | `HERDR_PANE_ID` があれば `herdr pane current` の `.result.pane.workspace_id` に `herdr tab create --workspace <ws> --cwd <wt> --label <task_id> --no-focus`、なければ `herdr workspace create --cwd <wt> --label <task_id> --no-focus` → 応答 JSON の `.result.root_pane.pane_id // empty` を控える（`--json` は付けない） |
 | Codex 起動（既存 pane に） | `herdr agent start <name> --kind codex --pane <pane_id>`（ready 検出まで待って返る。cwd は pane から引き継ぎ） |
 | 起動確認 | `herdr agent get <name>`（self-update 終了なら `agent_not_found` → 再 start）+ `agent read --source visible` でダイアログ有無と入力プロンプト「›」確認 |
-| /goal 送信 + 完了待ち | `herdr agent prompt <name> "/goal Read .ai/tasks/<id>/CODEX_GOAL.md ..." --wait --timeout 1800000`（0.8.0 主経路。settled state 到達で返り、`.result.agent.agent_status` で分岐。送信後5秒以内に working|blocked が観測できなければ `agent_prompt_stalled` エラー → 画面確認し、未送達か・composer 残留か・実行中かを判断してから対処。盲目的に再送しない） |
-| 待ち直し | `herdr agent wait <name> --timeout 1800000`（--until なし = idle\|done\|blocked 到達で返る。完了は通常 `done`） |
-| marker 確認 | `herdr pane wait-output <pane_id> --regex "^• HERDR_TASK_DONE:<id>" --source recent-unwrapped --lines 500 --timeout 15000`（`--match` は substring 偽マッチするので使わない） |
-| 出力読取 | `herdr agent read <name> --source recent-unwrapped --lines 200`（plain text。jq 不要。idle/done 後は alternate screen の履歴も自動収集される） |
+| /goal 送信 + 完了待ち | `herdr agent prompt <name> "/goal Read .ai/tasks/<id>/CODEX_GOAL.md ..." --wait --until idle --until done --until blocked --until unknown` を timeout なしでバックグラウンド実行（working 以外になった時点で返る。`.result.agent.agent_status` で分岐。送信後5秒以内に working\|blocked が観測できなければ `agent_prompt_stalled` エラー → 画面確認し、未送達か・composer 残留か・実行中かを判断してから対処。盲目的に再送しない） |
+| 待ち直し | 状態が working のときだけ `herdr agent wait <name> --until idle --until done --until blocked --until unknown`（現在の状態が一致していると即座に返る。完了は通常 `done`） |
+| 完了の確認 | `agent get` の状態 → `CODEX_DONE.md`（主）→ marker（補助）。marker は `agent read` の出力から空白・改行を除いて `•HERDR_TASK_DONE:<id>` を探す（idle / done 以外では `--source visible`）。unknown で成果物も marker も無ければ、送り直さずに短い `agent wait --until working …` で作業中かを確かめる。コマンドは workflow.md §2.3 からコピーする |
+| 出力読取 | `herdr agent read <name> --source recent-unwrapped --lines 200`（plain text。jq 不要。idle/done 後は alternate screen の履歴も自動収集される。working / blocked / unknown では履歴の読み取りが `agent_not_idle` になるので `--source visible`） |
 | ダイアログ操作 | `herdr agent send-keys <name> enter`（0.8.0。pane send-keys でも可） |
 | レビュー可視化（任意） | root pane を `pane split` → `pane run <pane> "hunk diff"` で人間に見せ、`hunk session comment apply` で REVIEW 指摘をインライン注釈（要 hunk CLI のみ。workflow.md §13.1） |
 
@@ -49,7 +49,9 @@ Claude Code が実装計画を書き、Herdr 経由で Codex CLI の `/goal` に
 - **`--json` フラグを付けない** — 0.8.0 で JSON がデフォルト出力になり廃止（worktree 系のみ互換で受理。`workspace list --json` 等は usage エラー）。
 - **起動直後にいきなり送信しない** — ①codex が self-update して即終了することがある（`agent_not_found`）。②**対話式アップデートダイアログ**（0.146 実測）や fresh worktree の **trust 確認ダイアログ**が出ても **status は `idle` のままで `blocked` にならない**（0.9.1 以前。0.9.3 + 検出 manifest 2026.10.11.1 では trust / アップデートは `blocked` と判定される。どちらでも状態だけに頼らない）。visible read で検出し、アップデートは `pane send-text "2"` + `agent send-keys enter` で Skip（Enter 即送信は「Update now」を選んでしまう。codex-cli 0.160 は "2" だけで Skip）、trust は enter で承認。③codex-cli 0.160 では共有デーモンの設定不一致ダイアログ（`pane send-text "1"` = 今回はデーモンなし。"2" の Restart は他の Codex セッションを中断し得る）と hooks レビュー画面（`agent send-keys esc`。trust all の `t` は押さない。閉じたレーンでは hooks が動かないので、そのことを REVIEW-N.md と人間への報告に書く）も出る。**hooks 画面は起動確認の後に遅れて出て goal を飲み込み、`prompt --wait` が done を返す** — marker がなければ画面を確認する。なお旧版の「TUI 初期化中のプロンプトが無音で消えて偽 done」問題は 0.8.0 で修正され、届かない場合は `agent_prompt_stalled` エラーが返る。
 - **完了を `idle` 前提で待たない** — CLI 駆動では完了は通常 `done`（0.8.0 公式: done = 未読のまま作業が終わった idle。CLI read では既読にならない）。`prompt --wait` / `agent wait` の返り値の状態で分岐。
-- **marker を素の substring / `--match` で待たない** — goal 本文に marker を含めるため、エコー行（`• Goal active Objective: ...`）に即偽マッチする（0.8.0 実測で再確認）。行頭アンカー付き `--regex "^• HERDR_TASK_DONE:<id>"` を使い、matched_line を確認。
+- **待ちに `--until unknown` を付け忘れない** — Codex は応答後も `unknown` のまま残ることがあり、既定（idle\|done\|blocked）の待ちは返らないことがある（herdr 0.9.3 公式 Agents ページ）。作業中に一瞬 unknown で早く返っても、working なら待ち直せばよい。
+- **marker を待つループを書かない** — 待ちの抜け条件は状態だけにする。Codex は長い行を pane の幅で自分で折り返し、pane の幅はクライアント構成次第で狭くなる（公式 Configuration / Concepts）。2026-10-13 の macmini では約50桁の pane で marker が `…-p1c-ai-hand-` と `part1` に割れ、marker が1行で出るまで回るループが終わらず、Codex の完了に約4時間気付かなかった。
+- **marker を `pane wait-output` や行頭アンカーの regex で探さない** — `pane wait-output` は1行ずつしか照合せず（公式 CLI reference。agent には `agent wait` を勧めている）、`recent-unwrapped` も Codex が入れた改行はつながない。`agent read` の出力から空白・改行を除き、`•HERDR_TASK_DONE:<id>` の形で探す。素の substring だと goal のエコー行に偽マッチする（空白を除くとエコー行は `printHERDR_…` になるので、`•` 付きで区別できる）。marker は単独のメッセージとして出させる（複数行のメッセージの途中だと `•` の直後にならず見つからない）。
 - **`agent read` / `pane read` の出力を jq に通さない** — 0.7.5+ でどちらも plain text（`jq -r '.result.read.text'` は parse error）。`agent get` / `tab create` 等は従来どおり JSON。
 - **`--source recent-unwrapped` を小さい `--lines` で読まない** — 履歴バッファ末尾は空行がちで、空に見える（0.8.0 でも再現）。`--lines 200` 以上にするか、現在画面が欲しいなら `--source visible`。
 - **pane コマンドに agent 名を渡さない** — `pane run`/`send-keys`/`close`/`wait-output` は pane id 必須。
@@ -63,7 +65,7 @@ Claude Code が実装計画を書き、Herdr 経由で Codex CLI の `/goal` に
 0. `check-versions.sh` で依存バージョンを検証（WARN 時は指示された確認をしてから進む）
 1. `git worktree add` で worktree 作成 + `.git/info/exclude` に `.ai/` 追加 → 委譲元 workspace に Codex 用タブを作成（応答 JSON から root pane id を控える。herdr 外からなら単独 workspace）
 2. brainstorming → writing-plans で `PLAN.md`、契約書 `CODEX_GOAL.md` を worktree 内 `.ai/tasks/<TASK_ID>/` に作成
-3. root pane に Codex 起動（`--kind codex --pane`）→ 起動確認（生存 + visible read でダイアログ有無を確認）→ 1行 `/goal` を `agent prompt --wait` で送信 → 返った agent_status（done/blocked）+ marker 確認（stalled エラーなら画面確認して再送）
+3. root pane に Codex 起動（`--kind codex --pane`）→ 起動確認（生存 + visible read でダイアログ有無を確認）→ 1行 `/goal` を `agent prompt --wait --until idle --until done --until blocked --until unknown` でバックグラウンド送信 → 返ったら「完了の確認」（状態・CODEX_DONE.md・折り返しに強い marker 検索。stalled エラーなら画面確認して対処）
 4. `CODEX_DONE.md`・git diff・テスト結果でレビュー → `REVIEW-N.md`
 5. 問題あれば `FIX-N.md` を書いて同じ pane に再 `/goal`（最大3ラウンド）
 6. APPROVED → `REVIEW-FINAL.md` → ログ保存 → pane close（タブも消える）→ Claude がコミットし、finishing-a-development-branch で merge / PR / reject を人間に確認（worktree は merge/PR まで残す）

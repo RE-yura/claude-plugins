@@ -5,7 +5,7 @@
       "verified": "0.9.3",
       "policy": "same-minor",
       "check": "herdr --version",
-      "note": "minor が変わると CLI が破壊的に変わる（0.7.4→0.7.5→0.8.0 で実証。0.8.2→0.9.0 は使用コマンドの引数は不変だが prompt --wait の stalled 判定厳密化・workspace close --group・protocol 20→22。0.9.1 は SSH/Windows/UI 中心で使用コマンドの引数は不変）。0.9.3 で委譲レーンを tab create --workspace 方式に変更して E2E 確認（pane current は HERDR_PANE_ID なしだと focused pane を返す。trust / アップデートダイアログは blocked と判定されるようになった）。WARN 時は herdr --skill と各コマンドの usage を workflow.md と突き合わせる。herdr status で client/server の整合も見る（旧 client が PATH に残ると protocol_mismatch）"
+      "note": "minor が変わると CLI が破壊的に変わる（0.7.4→0.7.5→0.8.0 で実証。0.8.2→0.9.0 は使用コマンドの引数は不変だが prompt --wait の stalled 判定厳密化・workspace close --group・protocol 20→22。0.9.1 は SSH/Windows/UI 中心で使用コマンドの引数は不変）。0.9.3 で委譲レーンを tab create --workspace 方式に変更して E2E 確認（pane current は HERDR_PANE_ID なしだと focused pane を返す。trust / アップデートダイアログは blocked と判定されるようになった。公式 Agents ページ: Codex は応答後も unknown のまま残ることがある → 完了待ちに --until unknown を足す。pane wait-output は1行ずつ照合するので、Codex が折り返した marker は agent read から空白を除いて探す（workflow.md §2.3）。WARN 時は herdr --skill と各コマンドの usage を workflow.md と突き合わせる。herdr status で client/server の整合も見る（旧 client が PATH に残ると protocol_mismatch）"
     },
     "codex": {
       "verified": "0.160.0",
