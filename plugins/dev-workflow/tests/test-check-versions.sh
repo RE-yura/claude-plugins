@@ -310,6 +310,47 @@ run_checker --quiet
 assert_empty_output "quiet claude: 無出力"
 assert_exit_zero "quiet claude"
 
+# --- ケース26: herdr が検証済みより新しい patch → INFO（on_newer）・件数に数えない ---
+setup_env "herdr 0.8.2" "codex-cli 0.145.0" "6.3.0"
+run_checker
+assert_contains "herdr新しいpatch: INFO" "INFO    herdr 0.8.2 は検証済み 0.8.0 より新しい — テスト用: 新しい版のリリースノートを確認する"
+assert_contains "herdr新しいpatch: 続行メッセージ" "すべて許容範囲"
+assert_exit_zero "herdr新しいpatch"
+
+# --- ケース27: herdr が検証済みと同じ → INFO を出さない --------------------------
+setup_env "herdr 0.8.0" "codex-cli 0.145.0" "6.3.0"
+run_checker
+assert_not_contains "herdr同一: INFO なし" "より新しい"
+assert_exit_zero "herdr同一"
+
+# --- ケース28: herdr が新しい minor → WARN に加えて INFO ------------------------
+setup_env "herdr 0.9.1" "codex-cli 0.145.0" "6.3.0"
+run_checker
+assert_contains "herdr新しいminor: WARN" "WARN    herdr 0.9.1"
+assert_contains "herdr新しいminor: INFO" "INFO    herdr 0.9.1 は検証済み 0.8.0 より新しい"
+assert_contains "herdr新しいminor: 件数は WARN のみ" "1 件の WARN/MISSING"
+assert_exit_zero "herdr新しいminor"
+
+# --- ケース29: herdr が検証済みより古い → INFO を出さない ------------------------
+setup_env "herdr 0.7.5" "codex-cli 0.145.0" "6.3.0"
+run_checker
+assert_not_contains "herdr古い: INFO なし" "より新しい"
+assert_exit_zero "herdr古い"
+
+# --- ケース30: --quiet + herdr 新しい patch → INFO は出さず完全に無出力 -----------
+setup_env "herdr 0.8.2" "codex-cli 0.145.0" "6.3.0"
+run_checker --quiet
+assert_empty_output "quiet herdr新しいpatch: 無出力"
+assert_exit_zero "quiet herdr新しいpatch"
+
+# --- ケース31: versions.json に on_newer が無い → 新しくても INFO を出さない -------
+setup_env "herdr 0.8.2" "codex-cli 0.145.0" "6.3.0"
+"$REAL_JQ" 'del(.dependencies.herdr.on_newer)' "$ENV_DIR/versions.json" > "$ENV_DIR/v.tmp" && mv "$ENV_DIR/v.tmp" "$ENV_DIR/versions.json"
+run_checker
+assert_not_contains "on_newer なし: INFO なし" "より新しい"
+assert_contains "on_newer なし: 続行メッセージ" "すべて許容範囲"
+assert_exit_zero "on_newer なし"
+
 # --- 結果 --------------------------------------------------------------------
 echo ""
 echo "結果: ${pass} passed, ${fail} failed"

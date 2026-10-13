@@ -5,7 +5,8 @@
       "verified": "0.8.0",
       "policy": "same-minor",
       "check": "herdr --version",
-      "note": "テスト用 fixture（実物の skills/delegating-to-codex/versions.json とは独立）"
+      "note": "テスト用 fixture（実物の skills/delegating-to-codex/versions.json とは独立）",
+      "on_newer": "テスト用: 新しい版のリリースノートを確認する"
     },
     "codex": {
       "verified": "0.145.0",

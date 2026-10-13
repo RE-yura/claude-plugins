@@ -13,7 +13,7 @@
 |---|---|
 | SessionStart hook | 上記ルール2本を毎セッション開始時に無条件で注入 |
 | UserPromptSubmit hook | プロンプトのキーワード（設計/実装/plan/codex/委譲 等）に応じてルールを just-in-time で再注入 |
-| `delegating-to-codex` スキル | 委譲ワークフローの正本。worktree 隔離、委譲元 workspace のタスク専用タブ、1行 `/goal`、完了検知（idle+marker）、REVIEW/FIX ループ、安全ルールまでの完全な手順書 |
+| `delegating-to-codex` スキル | 委譲ワークフローの正本。worktree 隔離、委譲元 workspace の直下に並ぶタスク専用 workspace（疑似ツリー）、1行 `/goal`、完了検知（idle+marker）、REVIEW/FIX ループ、安全ルールまでの完全な手順書 |
 
 ## インストール
 
@@ -43,13 +43,14 @@ Claude Code セッション内なら:
 | [Claude Code](https://docs.claude.com/en/docs/claude-code) | 2.1.296（info: 報告のみ） | hook（運用ルール注入）の実行環境。版が変わっても WARN にはしない |
 | jq | 任意（presence） | herdr の JSON 出力のパース |
 
-検証済みバージョンの正（source of truth）は [`skills/delegating-to-codex/versions.json`](skills/delegating-to-codex/versions.json)。herdr は minor バージョンで CLI が破壊的に変わるため、委譲ワークフローは開始前に同梱の `check-versions.sh` で実機バージョンとのズレを検出する（WARN は警告であってブロックではない）。herdr については `herdr status` で client と server の整合も確認する（client だけ入れ替わった直後は全 API が `protocol_mismatch` になるため）。バージョンを上げて再検証したら versions.json を更新する。
+検証済みバージョンの正（source of truth）は [`skills/delegating-to-codex/versions.json`](skills/delegating-to-codex/versions.json)。herdr は minor バージョンで CLI が破壊的に変わるため、委譲ワークフローは開始前に同梱の `check-versions.sh` で実機バージョンとのズレを検出する（WARN は警告であってブロックではない）。herdr については `herdr status` で client と server の整合も確認する（client だけ入れ替わった直後は全 API が `protocol_mismatch` になるため）。herdr が検証済みより新しいときは、待っている upstream の機能（起動元エージェントの下への入れ子表示）が入ったかを確かめるよう INFO で知らせる（versions.json の `on_newer`）。バージョンを上げて再検証したら versions.json を更新する。
 
 ## 開発
 
 ```bash
-# check-versions.sh と prompt-rules-reminder.sh（hook）のテスト（スタブ使用。実物の herdr / codex 不要）
-tests/test-check-versions.sh && tests/test-prompt-rules-reminder.sh
+# スクリプトと hook のテスト（スタブ使用。実物の herdr / codex 不要）
+tests/test-check-versions.sh && tests/test-prompt-rules-reminder.sh \
+  && tests/test-place-lane.sh && tests/test-section-refs.sh
 ```
 
 同じテストが GitHub Actions（`.github/workflows/test.yml`）でも push / PR ごとに走る（シェル・JSON の構文チェック込み）。

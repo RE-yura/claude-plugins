@@ -4,7 +4,7 @@
 
 Claude Code は、この文書を「実装委譲ワークフローの実行規約」として扱うこと。
 
-> 検証済み環境の正は同ディレクトリの [versions.json](versions.json)（herdr 0.9.3 / codex-cli 0.160.0 / superpowers 6.4.1 / Claude Code 2.1.296、2026-10-13 実機再検証・E2E 委譲一巡。過去: 0.9.1 / 0.9.0 / 0.8.2 / 0.8.0 / 0.7.5 / 0.7.1）。委譲開始前に必ず `check-versions.sh` を実行し、実機バージョンとのズレを検出すること（§5）。herdr の CLI はバージョンで大きく変わる（実例: 0.7.5 で `agent start` の署名変更・トップレベル `wait` 廃止・`agent prompt` 追加。0.8.0 で `prompt --wait` が主経路化・`--json` 廃止（JSON がデフォルト）・idle alternate-screen の自動履歴読み。0.9.0 は本書が使うコマンドの引数・出力は不変だが、`prompt --wait` の stalled 判定が厳密化（§2.3）、`workspace close --group` 追加（§17）、worktree 系に `--trust-repository` 追加、`--no-session` 廃止、client/server の protocol が 20→22 で分離・`herdr status` の出力キー変更。0.9.1 は SSH マシン操作・Windows・UI 中心で本書のコマンドは不変。Codex の状態検出が改善（入力欄の装飾で idle を blocked と誤判定しない #4092/#4099）、`worktree create --no-focus` は引き続き尊重される。0.9.3 は本書が使うコマンドの引数は不変。**2026-10-13 改訂: Codex レーンは `herdr worktree create` ではなく `git worktree add` + 委譲元 workspace のタブ（`herdr tab create --workspace`）に作る**（herdr の worktree グループはリポジトリ単位で親を選び、同じリポジトリの workspace が複数あると委譲元とは別の workspace の下に表示されるため。§6）。**2026-10-13 追記（skill 1.4.1 / plugin 1.5.1）: 完了待ちは状態だけで抜け（Codex は応答後に unknown のまま残ることがあるので `--until unknown` も足す）、marker は Codex の折り返しで割れても拾える方法で探す**（marker が1行で出るまで回るループが終わらず、完了に約4時間気付かなかったため。§2.3・§10））。動かない場合はまず引数なし実行で usage を確認し、`herdr --skill`（0.8.0+、同梱の公式エージェント向け説明）と公式 https://herdr.dev/docs/agent-automation/ に突き合わせること。ただし **`herdr worktree create` は引数なしでも既定値で即実行される**ので（本流では使わないが）usage 確認目的で叩かないこと（0.7.4 実測。§17.1）。
+> 検証済み環境の正は同ディレクトリの [versions.json](versions.json)（herdr 0.9.3 / codex-cli 0.160.0 / superpowers 6.4.1 / Claude Code 2.1.296、2026-10-13 実機再検証・E2E 委譲一巡。過去: 0.9.1 / 0.9.0 / 0.8.2 / 0.8.0 / 0.7.5 / 0.7.1）。委譲開始前に必ず `check-versions.sh` を実行し、実機バージョンとのズレを検出すること（§5）。herdr の CLI はバージョンで大きく変わる（実例: 0.7.5 で `agent start` の署名変更・トップレベル `wait` 廃止・`agent prompt` 追加。0.8.0 で `prompt --wait` が主経路化・`--json` 廃止（JSON がデフォルト）・idle alternate-screen の自動履歴読み。0.9.0 は本書が使うコマンドの引数・出力は不変だが、`prompt --wait` の stalled 判定が厳密化（§2.3）、`workspace close --group` 追加（§17）、worktree 系に `--trust-repository` 追加、`--no-session` 廃止、client/server の protocol が 20→22 で分離・`herdr status` の出力キー変更。0.9.1 は SSH マシン操作・Windows・UI 中心で本書のコマンドは不変。Codex の状態検出が改善（入力欄の装飾で idle を blocked と誤判定しない #4092/#4099）、`worktree create --no-focus` は引き続き尊重される。0.9.3 は本書が使うコマンドの引数は不変。**2026-10-13 改訂: Codex レーンは `herdr worktree create` ではなく `git worktree add` + 委譲元 workspace の直下に置く専用 workspace（疑似ツリー。skill 1.5.0 / plugin 1.6.0 で、同日導入のタブ方式から変更）に作る**（herdr の worktree グループはリポジトリ単位で親を選び、同じリポジトリの workspace が複数あると委譲元とは別の workspace の下に表示されるため。§6）。**2026-10-13 追記（skill 1.4.1 / plugin 1.5.1）: 完了待ちは状態だけで抜け（Codex は応答後に unknown のまま残ることがあるので `--until unknown` も足す）、marker は Codex の折り返しで割れても拾える方法で探す**（marker が1行で出るまで回るループが終わらず、完了に約4時間気付かなかったため。§2.3・§10））。動かない場合はまず引数なし実行で usage を確認し、`herdr --skill`（0.8.0+、同梱の公式エージェント向け説明）と公式 https://herdr.dev/docs/agent-automation/ に突き合わせること。ただし **`herdr worktree create` は引数なしでも既定値で即実行される**ので（本流では使わないが）usage 確認目的で叩かないこと（0.7.4 実測。§17.1）。
 
 ---
 
@@ -15,7 +15,7 @@ Claude Code と Codex の役割を分離する。
 ```text
 Claude Code = 設計者・計画作成者・レビュアー・承認者
 Codex CLI   = 実装担当・テスト実行担当・修正担当
-Herdr       = 委譲元 workspace に Codex 用タブを用意し、agent の起動・入力送信・進捗可視化・状態検知を行う
+Herdr       = 委譲元 workspace の直下に Codex 用 workspace を用意し、agent の起動・入力送信・進捗可視化・状態検知を行う
 Git worktree = Codex が安全に編集する隔離された作業領域（git worktree add で作る。herdr の worktree 機能は使わない）
 Task files  = Claude Code ↔ Codex 間の契約・状態・成果物
 ```
@@ -37,13 +37,14 @@ Claude Code は、原則として次の順で Herdr を使う。
   ターゲットは agent 名と、agent が居る pane の id。
 
 補助: herdr pane ...
-  pane の用意（tab create / workspace create の root pane、pane split）、shell コマンド実行（pane run）、
+  pane の用意（workspace create の root pane、pane split）、shell コマンド実行（pane run）、
   キー送信（send-keys）、Enter なしの文字列配置（send-text）、pane close に使う。
   完了 marker の検出に pane wait-output は使わない（§2.3）。
   pane コマンドのターゲットは pane id のみ（agent 名は不可）。
 
 後回し: socket API
-  常駐 orchestrator、イベント購読、Herdr plugin 化、複数 agent の大規模制御が必要になるまで使わない。
+  §6 のレーンの並べ替え（place-lane.sh の workspace.move_block。CLI に無いため）だけに使う。
+  常駐 orchestrator、イベント購読、Herdr plugin 化、複数 agent の大規模制御には、必要になるまで使わない。
 ```
 
 使い分けの実務ルール:
@@ -73,7 +74,7 @@ Codex の semantic state を待つ -> herdr agent wait <agent> --until idle --un
 
 JSON とテキストの区別（0.8.0 実測）:
 
-- `agent get` / `agent start` / `agent prompt` / `tab create` / `workspace create` /
+- `agent get` / `agent start` / `agent prompt` / `workspace create` / `workspace get` /
   `pane move` / `pane wait-output` / `workspace list` は
   `{"id":...,"result":{...}}` の JSON エンベロープを返す。pane id は
   `jq -r '.result.agent.pane_id'` のように取り出す。0.8.0 で JSON がデフォルトに
@@ -142,7 +143,7 @@ Claude Code は次の3つを組み合わせて判断する。
    - 0.8.0 で公式定義が明文化: idle = 入力可能 かつ その tab が focused UI で
      既読。done = 未読のままバックグラウンド作業が終わった同じ idle 状態。
      CLI read では既読にならない。→ CLI 駆動の本フローでは完了は done になる
-     （実測）。人間が Codex タブを見ていると idle になり得る。
+     （実測）。人間が Codex の画面を見ていると idle になり得る。
    - 公式 Agents ページ（0.9.3）: Codex は画面の spinner で working を判定するが、
      ターンの終わりは画面から確定できないので「応答後も unknown のまま残ることが
      あり、idle や完了を待つ wait は返らないことがある」。待ちの既定
@@ -278,10 +279,10 @@ Codex が作業する Git worktree の中に、次の task directory を作る�
 ```text
 0. Claude Code が check-versions.sh で依存バージョンを検証する（§5）
 1. Claude Code が TASK_ID を作る
-2. Claude Code が git worktree add で Git worktree を作って .ai/ を exclude し、委譲元 workspace に Codex 用タブを作る（応答 JSON の root pane id を控える。§6）
+2. Claude Code が git worktree add で Git worktree を作って .ai/ を exclude し、Codex 用 workspace を作って委譲元の直下へ移す（疑似ツリー。応答 JSON の root pane id を控える。§6）
 3. Claude Code が Codex worktree 内に PLAN.md / CODEX_GOAL.md を作る
    （brainstorming → writing-plans。§7 参照）
-4. Claude Code が Codex 用タブの root pane に Codex agent を起動する
+4. Claude Code が Codex 用 workspace の root pane に Codex agent を起動する
    （agent start --kind codex --pane）
 5. 起動確認を行う（agent get で生存確認 + visible read でダイアログの有無と
    入力プロンプト表示を確認）
@@ -326,6 +327,12 @@ herdr を使って揃える）。**exit は常に 0 でブロックはしない*
 versions.json を更新する。hook 等から低ノイズで呼ぶ場合は `--quiet`（全 OK なら
 無出力、WARN / MISSING があるときだけその行と件数を出す）を使う。
 
+herdr が検証済みより新しいときは、versions.json の `on_newer` に書いた確認事項を
+`INFO` で出す（件数には数えない。`--quiet` では出さない）。現在の内容は「herdr 本体に
+起動元エージェントの下への入れ子表示（#3153 / #4795 / #5210）が入ったか確認する」。
+この行が出たら、リリースノートを確かめて入っていればユーザーに伝え、§6 の疑似ツリーから
+乗り換えるか相談する。
+
 続けて、必要に応じて次を確認する。
 
 ```bash
@@ -363,7 +370,7 @@ goals = true
 
 ---
 
-## 6. TASK_ID・worktree・Codex 用タブの作成
+## 6. TASK_ID・worktree・Codex 用ワークスペース（疑似ツリー）の作成
 
 Claude Code は、ユーザーから実装委譲を求められたら、まず task id を作る。
 
@@ -389,8 +396,9 @@ Codex レーンが委譲元とは別の workspace の下に表示される。`--
 指定しても、呼び元が子のようにインデントされるだけで解決しない（2026-10-13 調査。
 herdr #4736 / PR #4772 も parent ID は追加しない方針）。
 
-次に、委譲元（Claude Code が居る）workspace に Codex 用のタブを作り、応答 JSON から
-root pane id を控える（Codex はこの root pane に直接起動する。§9）。
+次に、Codex 用のワークスペースを作り、サイドバーで委譲元（Claude Code が居る）
+workspace の直下へ移す（**疑似ツリー**）。応答 JSON の root pane id を控え、Codex は
+この root pane に直接起動する（§9）。
 
 ```bash
 # 呼び元 workspace の特定。herdr の外では pane current がエラーにならず
@@ -400,45 +408,81 @@ if [ -n "${HERDR_PANE_ID:-}" ]; then
   CALLER_WS="$(herdr pane current 2>/dev/null | jq -r '.result.pane.workspace_id // empty' || true)"
 fi
 
-if [ -n "$CALLER_WS" ]; then
-  CREATED="$(herdr tab create --workspace "$CALLER_WS" --cwd "$WT" --label "$TASK_ID" --no-focus)"
-  LANE_KIND=tab
-else
-  # herdr の外からの委譲。グループに属さない単独 workspace に置く
-  CREATED="$(herdr workspace create --cwd "$WT" --label "$TASK_ID" --no-focus)"
-  LANE_KIND=workspace
-fi
+# 委譲元が分かるときはラベルの先頭に "└ " を付け、子の行に見せる
+if [ -n "$CALLER_WS" ]; then LANE_LABEL="└ $TASK_ID"; else LANE_LABEL="$TASK_ID"; fi
+CREATED="$(herdr workspace create --cwd "$WT" --label "$LANE_LABEL" --no-focus)"
 
 # エラー JSON（protocol_mismatch 等は exit 0 で返る）で "null" を拾わないよう // empty を付ける
+LANE_WS="$(printf '%s' "$CREATED" | jq -r '.result.workspace.workspace_id // empty')"
 PANE_ID="$(printf '%s' "$CREATED" | jq -r '.result.root_pane.pane_id // empty')"
 test -n "$PANE_ID" || { printf 'lane create failed: %s\n' "$CREATED" >&2; false; }
+
+# 委譲元の直下へ移す（サイドバーの描画順で、委譲元のかたまりと既存のレーンの後ろ）。
+# 並べ替えは CLI に無いので、同梱の place-lane.sh が socket API の workspace.move_block を送る。
+# 失敗しても exit 0 で警告を出すだけ（レーンが一番下に残る）。CLAUDE_PLUGIN_ROOT が
+# 未設定の文脈では、この workflow.md と同じディレクトリの place-lane.sh を実行する
+if [ -n "$CALLER_WS" ]; then
+  "${CLAUDE_PLUGIN_ROOT}"/skills/delegating-to-codex/place-lane.sh "$CALLER_WS" "$LANE_WS"
+fi
 ```
 
-- tab create / workspace create が失敗した場合（`herdr status` の protocol_mismatch 等）、
-  worktree とブランチは既にできている。原因を直して tab create だけ再実行する（新しい
-  TASK_ID でやり直さない。孤児 worktree が増える）。やり直す場合は先に
-  `git -C "$ROOT" worktree remove "$WT" && git -C "$ROOT" branch -D "$BRANCH"` で片付ける。
-
-- root pane の cwd は worktree checkout そのものなので、そのまま Codex の作業ディレクトリになる（0.9.3 実測）。
-- `HERDR_PANE_ID` があれば `pane current` は caller context で解決される（pane move 後の
-  旧 ID もこの経路なら解決できる）。`pane current` が失敗した場合（stale ID なら
-  `pane_not_found`。0.9.3 実測）は `CALLER_WS` が空になり、単独 workspace に
-  フォールバックする。`|| true` は `set -euo pipefail` のスクリプトでもここで
-  止まらないため。
-- 単独 workspace は `worktree` が null で、どのグループにも属さない（0.9.3 実測。
-  workspace create は worktree の所属情報を付けない — 所属を付けるのは worktree 系の
-  API だけ。ソース確認）。
-- 作業中のタブを split しないのは、ユーザーの画面を狭め、並列委譲で破綻するため。
-  タブ名（TASK_ID）で委譲を見分けられる。
-- `--no-focus` なので、ユーザーのフォーカス（active tab）は動かない（0.9.3 実測）。
-- `LANE_KIND` は §15 の片付けの説明で使う。
-
-以後、Codex に読ませる task files は `$WT/.ai/tasks/$TASK_ID/` に作る。
+以後、Codex に読ませる task files は `$WT/.ai/tasks/$TASK_ID/` に作る。委譲元とレーンの
+対応も記録しておく（サイドバーの並び順は後から変わり得るので、並びだけに頼らない）。
 
 ```bash
 TASK_DIR="$WT/.ai/tasks/$TASK_ID"
 mkdir -p "$TASK_DIR/logs"
+CALLER_LABEL=""
+if [ -n "$CALLER_WS" ]; then
+  CALLER_LABEL="$(herdr workspace get "$CALLER_WS" 2>/dev/null | jq -r '.result.workspace.label // empty' || true)"
+fi
+jq -n --arg task "$TASK_ID" --arg caller "$CALLER_WS" --arg caller_label "$CALLER_LABEL" \
+  --arg caller_pane "${HERDR_PANE_ID:-}" --arg lane "$LANE_WS" --arg pane "$PANE_ID" \
+  --arg created "$(date '+%Y-%m-%dT%H:%M:%S%z')" \
+  '{task_id: $task, caller_workspace: $caller, caller_label: $caller_label, caller_pane: $caller_pane,
+    lane_workspace: $lane, pane_id: $pane, created_at: $created}' \
+  > "$TASK_DIR/logs/lane.json"
 ```
+
+- **疑似ツリーにする理由:** どの Claude Code セッションがどの Codex を起動したかを、
+  サイドバーで見えるようにするため。Codex の行が委譲元の行の直下に並び、Codex の状態
+  （working / done など）もその行に出る。本物の tree（worktree グループ）は上記のとおり
+  リポジトリ単位で親が1つなので、Claude ごとに分けられない。2026-10-13 にタブ方式
+  （委譲元 workspace の中のタブ）から切り替えた。タブ方式は対応関係が正しいが、
+  サイドバーに行が出ず見えなかった。
+- **将来:** herdr 本体で「起動元エージェントの下に起動されたエージェントを入れ子で表示」が
+  予定されている（issue #3153 でメンテナーが planned と表明。Discussions #4795・#5210）。
+  入ったら乗り換えを検討する。`check-versions.sh` が herdr の更新時に versions.json の
+  `on_newer` で知らせる（§5）。
+- **限界:** 字下げは本物ではない（ラベルの `└` で見せているだけ）ので、折り畳めない。
+  委譲元の行を後からドラッグしたり閉じたりしても、レーンの行は付いてこない（そのとき
+  レーンは上の行の子に見える）。ユーザーが自分で `└ ` から始まるラベルを付けた
+  workspace もレーンとして扱われる。どの Claude が起動したかの正は `logs/lane.json`
+  （委譲元の workspace・ラベル・pane と作成時刻）。
+- **並べ替え（place-lane.sh）:** `workspace.move_block` は指定した workspace だけを
+  `before_workspace_id` の前に移す（公式 Socket API・ソース確認）。ユーザーの他の
+  workspace の並びとフォーカスは変わらない（2026-10-13 実測。委譲元が真ん中・末尾の
+  どちらでも、2本目は1本目の後ろに並んだ）。サイドバーは worktree グループを最初の
+  メンバーの位置にひとかたまりで描くので、移動先はその描画順で決める。委譲元が
+  グループの親・子のときは、レーンはグループのかたまりの直後に並ぶ（グループの中には
+  入れない）。socket は herdr が pane に渡す `HERDR_SOCKET_PATH`。`nc -U` は macOS 標準の
+  nc で動く（Linux の netcat-traditional には無いので socat 等に置き換える）。CLI に
+  並べ替えのコマンドが入ったら置き換える（Discussions #5141）。テストは
+  `tests/test-place-lane.sh`。
+- workspace create が失敗した場合（`herdr status` の protocol_mismatch 等）、
+  worktree とブランチは既にできている。原因を直して workspace create から再実行する（新しい
+  TASK_ID でやり直さない。孤児 worktree が増える）。やり直す場合は先に
+  `git -C "$ROOT" worktree remove "$WT" && git -C "$ROOT" branch -D "$BRANCH"` で片付ける。
+- root pane の cwd は worktree checkout そのものなので、そのまま Codex の作業ディレクトリになる（0.9.3 実測）。
+- `HERDR_PANE_ID` があれば `pane current` は caller context で解決される（pane move 後の
+  旧 ID もこの経路なら解決できる）。`pane current` が失敗した場合（stale ID なら
+  `pane_not_found`。0.9.3 実測）は `CALLER_WS` が空になり、`└` の付かない単独 workspace が
+  一番下にできる。`|| true` は `set -euo pipefail` のスクリプトでもここで止まらないため。
+- レーンの workspace は `worktree` が null で、どのグループにも属さない（0.9.3 実測。
+  workspace create は worktree の所属情報を付けない — 所属を付けるのは worktree 系の
+  API だけ。ソース確認）。
+- 作業中のタブを split しないのは、ユーザーの画面を狭め、並列委譲で破綻するため。
+- `--no-focus` なので、ユーザーのフォーカスは動かない（0.9.3 実測）。
 
 ---
 
@@ -566,7 +610,7 @@ HERDR_TASK_BLOCKED:<TASK_ID>
 
 ## 9. Codex agent の起動
 
-Claude Code は、§6 で控えた **Codex 用タブ（herdr 外からなら単独 workspace）の root pane** に Codex を起動する。
+Claude Code は、§6 で控えた **Codex 用 workspace の root pane** に Codex を起動する。
 0.7.5+ の `agent start` は既存 pane への起動が必須で（`--kind` と `--pane` が必須、
 `--cwd` / `--no-focus` / pane 自動生成は廃止）、cwd は pane から引き継がれる。
 
@@ -646,20 +690,20 @@ herdr agent send-keys "$AGENT" enter
 補足:
 
 - 0.7.4 まで必要だった「pane move --new-tab --workspace による自 workspace への
-  回収」は不要。§6 で委譲元 workspace に作ったタブ（1レーン = 委譲元 workspace の
-  タブ 1 つ）がそのまま Codex の置き場所になる。Codex の状態は委譲元 workspace の
-  行に集約され、Agents パネルには Codex agent が個別に表示される。
+  回収」は不要。§6 で委譲元の直下に置いた workspace（1レーン = workspace 1 つ。
+  疑似ツリー）がそのまま Codex の置き場所になる。Codex の状態はその行に出て、
+  Agents パネルにも Codex agent が個別に表示される。
 - ID は `w1`（workspace）/ `w1:t1`（tab）/ `w1:p1`（pane）形式の opaque handle
   （0.8.0 公式）。閉じた tab/pane の ID は再利用されない。**別 workspace へ move
   した pane は新しい workspace 修飾 ID を受け取る** — 旧 ID は移動したプロセスの
   caller context 経由でしか解決されないので、一般のターゲットに使わない。移動後は
   `pane move` の応答 `.result.move_result.pane.pane_id` か agent 名を正とする。
-- タブはその中の最後の pane を閉じると自動で消える（0.9.3 実測）ので、cleanup は
+- workspace はその中の最後の pane を閉じると自動で消える（0.9.3 実測）ので、cleanup は
   `herdr pane close` だけでよい（§15）。
 - **Codex 用 pane の幅は保証されない。** herdr はクライアントが1つならすべてのタブを
   そのサイズに、複数なら表示中のタブを最後に操作したクライアントのサイズに合わせ、
   クライアントがないと 120×40 を使う（公式 Configuration「Headless terminal size」・
-  Concepts「Client and server」）。2026-10-13 の macmini では Codex 用タブが約50桁の
+  Concepts「Client and server」）。2026-10-13 の macmini では Codex 用 pane が約50桁の
   まま数時間続いた（旧方式の worktree workspace でも同じことが起きていた）。Codex は
   長い行を pane の幅で自分で折り返すので、marker が2行に割れる（実例:
   `• HERDR_TASK_DONE:20261013-110845-p1c-ai-hand-` と `  part1`）。marker は §2.3 の
@@ -839,7 +883,7 @@ hunk CLI が導入済みの環境（`which hunk` で確認）では、Claude Cod
 ```bash
 # Codex worktree の未コミット差分を人間用に表示。
 # agent start は --kind（既知エージェント種別）必須のため、hunk のような
-# 任意 TUI は agent start では起動できない。Codex タブの root pane を
+# 任意 TUI は agent start では起動できない。Codex 用 workspace の root pane を
 # split して pane run で起動する。
 HUNK_PANE="$(herdr pane split "$PANE_ID" --direction right --cwd "$WT" --no-focus \
   | jq -r '.result.pane.pane_id')"
@@ -851,7 +895,7 @@ printf '%s\n' '{"comments":[{"filePath":"src/x.ts","newLine":12,"summary":"REVIE
   | hunk session comment apply --repo "$WT" --stdin
 ```
 
-指摘の summary には `REVIEW-N.md` の項番を含め、対応関係を保つこと。session CLI の全コマンド（navigate / reload / comment 等）は `hunk skill path` で表示される同梱スキルが正本。**REVIEW-N.md が正本であることは変わらない** — hunk 注釈は人間が diff 上で指摘を追うための補助であり、レビュー記録の代替ではない。レビュー完了後（APPROVED / ABORTED）は hunk pane も `herdr pane close` で片付ける（split で増やした pane を閉じても Codex の root pane には影響しない。逆に hunk pane を閉じ忘れると、Codex pane を閉じてもタブが残る。§15）。
+指摘の summary には `REVIEW-N.md` の項番を含め、対応関係を保つこと。session CLI の全コマンド（navigate / reload / comment 等）は `hunk skill path` で表示される同梱スキルが正本。**REVIEW-N.md が正本であることは変わらない** — hunk 注釈は人間が diff 上で指摘を追うための補助であり、レビュー記録の代替ではない。レビュー完了後（APPROVED / ABORTED）は hunk pane も `herdr pane close` で片付ける（split で増やした pane を閉じても Codex の root pane には影響しない。逆に hunk pane を閉じ忘れると、Codex pane を閉じても Codex 用 workspace が残る。§15）。
 
 ---
 
@@ -987,15 +1031,10 @@ git -C "$WT" diff \
 herdr pane close "$PANE_ID"
 ```
 
-pane close の結果（§6 の `LANE_KIND` 別。0.9.3 実測）:
+pane close の結果: Codex 用 workspace の最後の pane なので、workspace ごと閉じて
+サイドバーの `└` の行も消える（0.9.3 実測）。委譲元 workspace には影響しない。
 
-```text
-tab:       タブの最後の pane なのでタブが消える。委譲元のタブ（Claude Code 自身）が
-           残っているので、委譲元 workspace は閉じない。
-workspace: workspace の最後の pane なので workspace も閉じる。
-```
-
-§13.1 で hunk pane を split した場合は、先にそれも閉じる（残っているとタブが消えない）。
+§13.1 で hunk pane を split した場合は、先にそれも閉じる（残っていると workspace が消えない）。
 
 作業を中止する場合は、いきなり閉じずに可能なら Codex に pause を送る。
 
@@ -1044,7 +1083,7 @@ pane close と worktree remove は別物である。
 ```text
 pane close（§15）:
   Codex のプロセス・画面を閉じる。Claude Code の最終レビュー後に行う。
-  Codex 用タブ（単独 workspace の場合は workspace）も一緒に消える。checkout は残る。
+  Codex 用 workspace も一緒に消える。checkout は残る。
 
 worktree remove:
   Git worktree checkout を削除する。merge / PR / reject が終わった後だけ行う。
@@ -1193,12 +1232,12 @@ Codex がこれらを実行しようとして blocked になった場合、Claud
 ```text
 [ ] task id を作る
 [ ] git worktree add で Git worktree を作り、.git/info/exclude に .ai/ を足す（herdr worktree create は使わない）
-[ ] 委譲元 workspace に Codex 用タブを作る（HERDR_PANE_ID があれば pane current → tab create --workspace、なければ workspace create。応答 JSON の root pane id を // empty 付きで控える。--json は付けない）
+[ ] Codex 用 workspace を作り、委譲元の直下へ移す（HERDR_PANE_ID があれば pane current → ラベル "└ <TASK_ID>" で workspace create → place-lane.sh で委譲元の直下へ。なければ単独 workspace。応答 JSON の root pane id を // empty 付きで控え、logs/lane.json に委譲元とレーンを記録する。--json は付けない）
 [ ] Codex worktree 内に .ai/tasks/<TASK_ID>/ を作る
 [ ] superpowers:brainstorming で要件・設計を固める
 [ ] superpowers:writing-plans に従って PLAN.md を書く
 [ ] CODEX_GOAL.md を書く
-[ ] Codex 用タブの root pane に Codex を起動する（agent start --kind codex --pane）
+[ ] Codex 用 workspace の root pane に Codex を起動する（agent start --kind codex --pane）
 [ ] 起動確認: agent get で生存確認（self-update 終了なら再 start）
 [ ] 起動確認: visible read でダイアログの有無と入力プロンプト「›」を確認する
     （アップデートは "2" で Skip（0.160 は Enter 不要）、trust は enter で承認、
@@ -1217,7 +1256,7 @@ Codex がこれらを実行しようとして blocked になった場合、Claud
 [ ] 最大3ラウンドまで繰り返す
 [ ] APPROVED なら REVIEW-FINAL.md を書く
 [ ] final logs を保存する
-[ ] Codex pane を閉じる（hunk pane を split していれば先に閉じる。タブも消える）
+[ ] Codex pane を閉じる（hunk pane を split していれば先に閉じる。workspace と `└` の行も消える）
 [ ] Claude Code が worktree でコミットする（.ai/ 混入なしを git status で確認）
 [ ] finishing-a-development-branch で merge / PR / reject を人間に確認する
 [ ] worktree は merge / PR / reject まで残す
@@ -1278,7 +1317,7 @@ shift || true
 case "$cmd" in
   start)
     task_id="${1:?task_id required}"
-    pane_id="${2:?pane_id required (tab create / workspace create の .result.root_pane.pane_id)}"
+    pane_id="${2:?pane_id required (§6 の workspace create の .result.root_pane.pane_id)}"
     task_dir="${3:?task_dir required}"
     agent="codex-$task_id"
     mkdir -p "$task_dir/logs"
@@ -1378,8 +1417,8 @@ Claude Code は、このワークフローでは次を厳守する。
 - Codex に長文を直接 paste せず、1行の /goal で CODEX_GOAL.md を読ませる。
 - Herdr は agent CLI を主軸にし、/goal は agent prompt --wait で送って待つ。
   pane CLI は pane 用意 / send-text / close に使う（marker の検出に wait-output は使わない）。
-- socket API は初期実装では使わない。
-- Codex レーンは git worktree add + 委譲元 workspace のタブ（tab create --workspace）に作り、その root pane に起動する（agent start --kind codex --pane）。herdr worktree create は使わない。
+- socket API は §6 のレーンの並べ替え（place-lane.sh）だけに使う。
+- Codex レーンは git worktree add + 委譲元の直下に置く専用 workspace（疑似ツリー。§6）に作り、その root pane に起動する（agent start --kind codex --pane）。herdr worktree create は使わない。
 - 起動直後に送信しない。生存確認と visible read（ダイアログ有無）を先に行う。
   ダイアログの状態判定（idle / blocked）は herdr の版と検出 manifest で変わるので、
   状態だけに頼らず画面で判断する（§9）。hooks レビュー画面は遅れて出て goal を

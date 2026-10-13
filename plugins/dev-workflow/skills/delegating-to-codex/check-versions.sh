@@ -59,6 +59,15 @@ if command -v herdr >/dev/null 2>&1; then
     warn_count=$((warn_count + 1))
   fi
 
+  # --- herdr が検証済みより新しいときの確認事項（versions.json の on_newer） ---
+  # 待っている upstream の機能が入ったかを、herdr を上げたときに確かめるための知らせ。
+  # 件数には数えない（INFO）。
+  HERDR_ON_NEWER=$(jq -r '.dependencies.herdr.on_newer // empty' "$MANIFEST")
+  if [ -n "$herdr_ver" ] && [ -n "$HERDR_ON_NEWER" ] && [ "$herdr_ver" != "$HERDR_VERIFIED" ] \
+    && version_ge "$herdr_ver" "$HERDR_VERIFIED"; then
+    say "INFO    herdr ${herdr_ver} は検証済み ${HERDR_VERIFIED} より新しい — ${HERDR_ON_NEWER}"
+  fi
+
   # --- herdr client/server 整合 ---
   # herdr --version は PATH 上の client しか見ない。0.9.0 で protocol が 20→22 に
   # 上がった際、mise で入れ替えた後も既存シェルの PATH に旧 client が残り、
