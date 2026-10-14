@@ -391,7 +391,8 @@ echo ".ai/" >> "$(git -C "$WT" rev-parse --git-path info/exclude)"
 
 **`herdr worktree create` は使わない。** herdr の worktree グループはリポジトリ単位で、
 親 workspace は「同じリポジトリの workspace のうちサイドバー順で最初のもの」が
-選ばれる（herdr 0.9.3 のソースで確認）。同じリポジトリの workspace が複数あると、
+選ばれる（herdr 0.9.3 のソースで確認。0.9.4 は元のチェックアウトの workspace を全部
+並べてから子を描くが、リポジトリ単位なのは同じ）。同じリポジトリの workspace が複数あると、
 Codex レーンが委譲元とは別の workspace の下に表示される。`--workspace` で呼び元を
 指定しても、呼び元が子のようにインデントされるだけで解決しない（2026-10-13 調査。
 herdr #4736 / PR #4772 も parent ID は追加しない方針）。
@@ -452,7 +453,9 @@ jq -n --arg task "$TASK_ID" --arg caller "$CALLER_WS" --arg caller_label "$CALLE
   サイドバーに行が出ず見えなかった。
 - **将来:** herdr 本体で「起動元エージェントの下に起動されたエージェントを入れ子で表示」が
   予定されている（issue #3153 でメンテナーが planned と表明。Discussions #4795・#5210）。
-  入ったら乗り換えを検討する。`check-versions.sh` が herdr の更新時に versions.json の
+  また Discussion #1620（Hierarchical space groups）では、`workspace create` に
+  `parent_workspace_id` を渡してリポジトリと無関係に親の下へ並べる API が提案されている。
+  どちらかが入ったら乗り換えを検討する（2026-10-14 時点で 0.9.4 にも master にも無い）。`check-versions.sh` が herdr の更新時に versions.json の
   `on_newer` で知らせる（§5）。
 - **限界:** 字下げは本物ではない（ラベルの `└` で見せているだけ）ので、折り畳めない。
   委譲元の行を後からドラッグしたり閉じたりしても、レーンの行は付いてこない（そのとき
@@ -465,7 +468,10 @@ jq -n --arg task "$TASK_ID" --arg caller "$CALLER_WS" --arg caller_label "$CALLE
   どちらでも、2本目は1本目の後ろに並んだ）。サイドバーは worktree グループを最初の
   メンバーの位置にひとかたまりで描くので、移動先はその描画順で決める。委譲元が
   グループの親・子のときは、レーンはグループのかたまりの直後に並ぶ（グループの中には
-  入れない）。socket は herdr が pane に渡す `HERDR_SOCKET_PATH`。`nc -U` は macOS 標準の
+  入れない）。グループになる条件は herdr の版で違う（0.9.3 まで: 同じリポジトリの
+  workspace が2つ以上あり、元のチェックアウトを含む。0.9.4 から: 元のチェックアウトと
+  linked worktree の両方を含む。#4772）。place-lane.sh は PATH の herdr（サイドバーを描く
+  client）の版で切り替え、版が取れなければ 0.9.4 以降の条件にする。socket は herdr が pane に渡す `HERDR_SOCKET_PATH`。`nc -U` は macOS 標準の
   nc で動く（Linux の netcat-traditional には無いので socat 等に置き換える）。CLI に
   並べ替えのコマンドが入ったら置き換える（Discussions #5141）。テストは
   `tests/test-place-lane.sh`。
@@ -480,7 +486,7 @@ jq -n --arg task "$TASK_ID" --arg caller "$CALLER_WS" --arg caller_label "$CALLE
   一番下にできる。`|| true` は `set -euo pipefail` のスクリプトでもここで止まらないため。
 - レーンの workspace は `worktree` が null で、どのグループにも属さない（0.9.3 実測。
   workspace create は worktree の所属情報を付けない — 所属を付けるのは worktree 系の
-  API だけ。ソース確認）。
+  API だけ。0.9.3・0.9.4 のソース確認）。
 - 作業中のタブを split しないのは、ユーザーの画面を狭め、並列委譲で破綻するため。
 - `--no-focus` なので、ユーザーのフォーカスは動かない（0.9.3 実測）。
 

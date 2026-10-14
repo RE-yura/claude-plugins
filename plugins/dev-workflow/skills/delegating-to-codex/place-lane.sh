@@ -3,11 +3,16 @@
 # （疑似ツリー。workflow.md §6）。
 #   usage: place-lane.sh <caller_workspace_id> <lane_workspace_id>
 #
-# サイドバーは worktree グループ（同じ repo_key の workspace が2つ以上あり、linked でない
-# ものを含む）を、最初のメンバーの位置にひとかたまりで描く（herdr 0.9.3
-# src/client/shell/sidebar.rs の workspace_entries）。グループに属さないレーンはその中に
-# 入れないので、移動先はこの描画順で決める: 委譲元を含むかたまりの後ろ、さらに後ろに
-# 既存のレーン（ラベルが "└ " で始まる行）が続いていればその後ろ。
+# サイドバーは worktree グループ（同じ repo_key の workspace の集まり）を、最初のメンバーの
+# 位置にひとかたまりで描く（src/client/shell/sidebar.rs の workspace_entries）。グループに
+# なる条件は herdr の版で違う:
+#   0.9.3 まで: 2つ以上あり、linked でないものを含む
+#   0.9.4 から: linked なものと linked でないものを両方含む（同じ repo を2回開いただけの
+#               workspace は別々に描かれる。#4772）
+# サイドバーを描くのは client なので、PATH の herdr（client）の版で選ぶ。版が取れなければ
+# 新しい方の条件にする。グループに属さないレーンはその中に入れないので、移動先はこの
+# 描画順で決める: 委譲元を含むかたまりの後ろ、さらに後ろに既存のレーン（ラベルが "└ " で
+# 始まる行）が続いていればその後ろ。
 #
 # 並べ替えは CLI に無いので socket API の workspace.move_block を使う。
 # 失敗しても exit 0（警告だけ出す。レーンが一番下に残るだけで、委譲は続けられる）。
@@ -25,12 +30,21 @@ warn() {
 
 LIST="$(herdr workspace list 2>/dev/null)" || warn "herdr workspace list に失敗"
 
+HERDR_VER="$(herdr --version 2>/dev/null | awk '{print $2}')"
+RULE=mixed
+if [ -n "$HERDR_VER" ] \
+  && [ "$(printf '%s\n%s\n' "$HERDR_VER" 0.9.4 | sort -V | head -n1)" != 0.9.4 ]; then
+  RULE=count
+fi
+
 # 描画順のかたまり（emit = そのかたまりが描かれる位置の workspace）を作り、
 # 委譲元を含むかたまりの次の、レーンでないかたまりを移動先にする
-ANCHOR="$(printf '%s' "$LIST" | jq -r --arg c "$CALLER" --arg l "$LANE" '
+ANCHOR="$(printf '%s' "$LIST" | jq -r --arg c "$CALLER" --arg l "$LANE" --arg rule "$RULE" '
   [.result.workspaces[] | select(.workspace_id != $l)] as $w
   | ([$w[] | select(.worktree != null)] | group_by(.worktree.repo_key)
-     | map(select(length >= 2 and any(.[]; .worktree.is_linked_worktree == false))
+     | map(select(any(.[]; .worktree.is_linked_worktree == false)
+                  and (if $rule == "count" then length >= 2
+                       else any(.[]; .worktree.is_linked_worktree == true) end))
            | .[0].worktree.repo_key)) as $g
   | (reduce $w[] as $x ({seen: [], e: []};
       ($x.worktree.repo_key // "") as $k
