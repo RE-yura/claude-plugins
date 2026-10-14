@@ -1,11 +1,11 @@
 {
-  "verified_at": "2026-10-13",
+  "verified_at": "2026-10-15",
   "dependencies": {
     "herdr": {
-      "verified": "0.9.3",
+      "verified": "0.9.4",
       "policy": "same-minor",
       "check": "herdr --version",
-      "note": "minor が変わると CLI が破壊的に変わる（0.7.4→0.7.5→0.8.0 で実証。0.8.2→0.9.0 は使用コマンドの引数は不変だが prompt --wait の stalled 判定厳密化・workspace close --group・protocol 20→22。0.9.1 は SSH/Windows/UI 中心で使用コマンドの引数は不変）。0.9.3 で委譲レーンを疑似ツリー方式（workspace create + socket の workspace.move_block で委譲元の直下へ）に変更して E2E 確認（pane current は HERDR_PANE_ID なしだと focused pane を返す。trust / アップデートダイアログは blocked と判定されるようになった。公式 Agents ページ: Codex は応答後も unknown のまま残ることがある → 完了待ちに --until unknown を足す。pane wait-output は1行ずつ照合するので、Codex が折り返した marker は agent read から空白を除いて探す（workflow.md §2.3）。0.9.4 でサイドバーの worktree グループの条件が変わった（#4772）ので、place-lane.sh は herdr の版で判定を切り替える（0.9.4 は実機での E2E 未検証）。WARN 時は herdr --skill と各コマンドの usage を workflow.md と突き合わせる。herdr status で client/server の整合も見る（旧 client が PATH に残ると protocol_mismatch）",
+      "note": "minor が変わると CLI が破壊的に変わる（0.7.4→0.7.5→0.8.0 で実証。0.8.2→0.9.0 は使用コマンドの引数は不変だが prompt --wait の stalled 判定厳密化・workspace close --group・protocol 20→22。0.9.1 は SSH/Windows/UI 中心で使用コマンドの引数は不変）。0.9.3 で委譲レーンを疑似ツリー方式（workspace create + socket の workspace.move_block で委譲元の直下へ）に変更して E2E 確認（pane current は HERDR_PANE_ID なしだと focused pane を返す。trust / アップデートダイアログは blocked と判定されるようになった。公式 Agents ページ: Codex は応答後も unknown のまま残ることがある → 完了待ちに --until unknown を足す。pane wait-output は1行ずつ照合するので、Codex が折り返した marker は agent read から空白を除いて探す（workflow.md §2.3）。0.9.4 でサイドバーの worktree グループの条件が変わった（#4772）ので、place-lane.sh は herdr の版で判定を切り替える。0.9.4 で E2E（2026-10-15）: Codex を --no-daemon で起動。起動ダイアログで blocked になると agent start が agent_not_ready を返す（起動確認へ進めばよい）。hooks レビュー画面は done のまま。完了は prompt --wait が done で返った（hooks を trust せず、画面判定 osc_title_idle）。pane close で確認は出ず、レーンの行も消えた。WARN 時は herdr --skill と各コマンドの usage を workflow.md と突き合わせる。herdr status で client/server の整合も見る（旧 client が PATH に残ると protocol_mismatch）",
       "on_newer": "リリースノート（https://github.com/herdrdev/herdr/releases）で、起動元エージェントの下に起動されたエージェントを入れ子で表示する機能（herdr issue #3153 でメンテナーが planned と表明。Discussions #4795・#5210）、または workspace create で親 workspace を指定できる API（Discussion #1620 で parent_workspace_id として提案）が入ったか確認する。入っていればユーザーに伝え、Codex レーンの疑似ツリー（workflow.md §6）から乗り換えるか相談する"
     },
     "codex": {
@@ -13,7 +13,7 @@
       "policy": "minimum",
       "minimum": "0.144.0",
       "check": "codex --version",
-      "note": "0.144+ で /goal (feature goals) が既定有効。self-update で実機が検証済みより先行しがち。0.160 で起動時に共有デーモン設定不一致ダイアログと hooks レビュー画面が出る（workflow.md §9）"
+      "note": "0.144+ で /goal (feature goals) が既定有効。self-update で実機が検証済みより先行しがち。0.160 で起動時に共有デーモン設定不一致ダイアログ（--no-daemon で起動すれば出ない）と hooks レビュー画面が出る（workflow.md §9）"
     },
     "superpowers": {
       "verified": "6.4.1",
@@ -22,7 +22,7 @@
       "note": "brainstorming / writing-plans スキルの提供元"
     },
     "claude": {
-      "verified": "2.1.296",
+      "verified": "2.1.300",
       "policy": "info",
       "check": "claude --version",
       "note": "Claude Code CLI。hook（SessionStart / UserPromptSubmit）の実行環境。頻繁に更新されるため報告のみで WARN にしない。minor が変わったら hook が発火しているか確認して verified を更新する"

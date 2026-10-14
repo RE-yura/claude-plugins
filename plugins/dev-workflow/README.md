@@ -38,7 +38,7 @@ Claude Code セッション内なら:
 | 必要なもの | 検証済みバージョン | 何のために |
 |---|---|---|
 | [superpowers](https://github.com/obra/superpowers) プラグイン | 6.4.1（same-major） | brainstorming / writing-plans スキルの提供元（`claude plugin install superpowers@claude-plugins-official`） |
-| [herdr](https://herdr.dev) | 0.9.3（same-minor） | Codex を pane として起動・監視・操作（導入後 `herdr integration install codex`） |
+| [herdr](https://herdr.dev) | 0.9.4（same-minor） | Codex を pane として起動・監視・操作（導入後 `herdr integration install codex`） |
 | [Codex CLI](https://developers.openai.com/codex/cli) | 0.160.0（minimum 0.144.0） | 実装担当（0.144+ は `/goal` 既定有効。slash command list に出ない場合のみ `codex features enable goals`） |
 | [Claude Code](https://docs.claude.com/en/docs/claude-code) | 2.1.296（info: 報告のみ） | hook（運用ルール注入）の実行環境。版が変わっても WARN にはしない |
 | jq | 任意（presence） | herdr の JSON 出力のパース |
