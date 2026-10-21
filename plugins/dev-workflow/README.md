@@ -42,6 +42,7 @@ Claude Code セッション内なら:
 | [Codex CLI](https://developers.openai.com/codex/cli) | 0.160.0（minimum 0.144.0） | 実装担当（0.144+ は `/goal` 既定有効。slash command list に出ない場合のみ `codex features enable goals`） |
 | [Claude Code](https://docs.claude.com/en/docs/claude-code) | 2.1.296（info: 報告のみ） | hook（運用ルール注入）の実行環境。版が変わっても WARN にはしない |
 | jq | 任意（presence） | herdr の JSON 出力のパース |
+| [yomiyasu](https://github.com/nanaism/yomiyasu) プラグイン | 任意（無ければその段を飛ばす。バージョン検査の対象外） | PR の本文の推敲（workflow.md §16.1。`claude plugin marketplace add nanaism/yomiyasu` → `claude plugin install yomiyasu@yomiyasu`） |
 
 検証済みバージョンの正（source of truth）は [`skills/delegating-to-codex/versions.json`](skills/delegating-to-codex/versions.json)。herdr は minor バージョンで CLI が破壊的に変わるため、委譲ワークフローは開始前に同梱の `check-versions.sh` で実機バージョンとのズレを検出する（WARN は警告であってブロックではない）。herdr については `herdr status` で client と server の整合も確認する（client だけ入れ替わった直後は全 API が `protocol_mismatch` になるため）。herdr が検証済みより新しいときは、待っている upstream の機能（起動元エージェントの下への入れ子表示）が入ったかを確かめるよう INFO で知らせる（versions.json の `on_newer`）。バージョンを上げて再検証したら versions.json を更新する。
 

@@ -40,6 +40,7 @@ Codex に実装を委譲して         → delegating-to-codex スキルが起�
 | [herdr](https://herdr.dev) | Codex を pane として起動・監視・操作するターミナルワークスペースマネージャ | [herdr.dev/docs/install](https://herdr.dev/docs/install/) 参照。導入後 `herdr integration install codex` で状態検知を有効化 |
 | [Codex CLI](https://developers.openai.com/codex/cli) | 実装担当。`/goal`（長時間自律実行モード）を使う | 0.144+ は `/goal` 既定有効。slash command list に出ない場合のみ `codex features enable goals` |
 | jq | herdr の JSON 出力のパース | `brew install jq` |
+| [yomiyasu](https://github.com/nanaism/yomiyasu) プラグイン（任意） | PR の本文の推敲。無ければその段を飛ばす | `claude plugin marketplace add nanaism/yomiyasu` → `claude plugin install yomiyasu@yomiyasu` |
 
 ## 導入
 

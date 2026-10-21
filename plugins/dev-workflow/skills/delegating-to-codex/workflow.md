@@ -1096,6 +1096,7 @@ herdr agent prompt "$AGENT" "/goal pause"
 2. superpowers:finishing-a-development-branch スキルを起動する
    - merge / PR / 保留 / 破棄 の選択肢を人間に提示し、決定に従う。
    - スキルが使えない環境では、同等の選択肢を人間に確認してから実行する。
+   - PR を作ると決まったら、gh pr create の前に本文を yomiyasu で推敲する（§16.1。任意）。
 3. 決定を実行したら（merge 完了 / reject）、§17 の worktree cleanup に進む。PR を作った場合は、
    PR がマージ（またはクローズ）されるまで worktree を残し（レビュー対応の修正に使う）、その後 §17 に進む
 ```
@@ -1111,6 +1112,26 @@ git -C "$WT" commit -m "<type>: <PLAN.md の Objective 要約> ($TASK_ID)"
 - §15 の final ログ保存を先に済ませること（`final.diff` は未コミット状態の記録として残す）。
 - PR にする場合のブランチは §6 で作った `ai/<TASK_ID>`。push の可否・リモート・レビュー運用はプロジェクト規約に従う。
 - 人間が破棄（reject）を選んだ場合、コミット済みのブランチごと §17 の cleanup で worktree を破棄してよい（変更内容は `logs/final.diff` にも保存済み）。人間が事前に破棄を明言している場合は、コミット自体を省略して §17 に進んでよい。
+
+### 16.1 PR の本文の推敲（yomiyasu。任意）
+
+PR を作ると決まったら、`gh pr create` の前に本文を [yomiyasu](https://github.com/nanaism/yomiyasu)（AI が書いた日本語を読みやすく直すスキル）で推敲してから使う。PR の本文は人間が読む文章なので、ここで使う。コミットメッセージ・`PLAN.md`・`CODEX_GOAL.md`・`REVIEW-N.md` には使わない。
+
+```text
+1. 本文を .ai/tasks/<TASK_ID>/PR_BODY.md に書く。
+2. 次のどちらかに当たれば、この節の 3 を飛ばして 4 に進む。
+   - 本文が日本語でない（yomiyasu は日本語専用）
+   - スキル一覧に yomiyasu:yomiyasu（プラグインで入れた場合）も yomiyasu（npx skills などで
+     入れた場合）も無い（dev-workflow は yomiyasu を必須にしない）
+3. 一覧にあるほうの名前で yomiyasu を起動し、PR_BODY.md を推敲させる。
+   - yomiyasu は元のファイルを書き換えず、最終稿を同じフォルダに別の名前で保存する。
+   - yomiyasu が「書き手に確かめたい点」を返したら、本文を書いた Claude Code が PLAN.md・
+     REVIEW-*.md・会話から答えて推敲し直す。答えが決まらないものだけを人間に聞く。
+   - 推敲の前後の差分は人間に見せない。
+4. 推敲した最終稿（3 を飛ばしたときは PR_BODY.md）で gh pr create --body-file <ファイル> を実行する。
+```
+
+yomiyasu は状態フォルダ `.yomiyasu/` を git リポジトリの最上位に作るが、中に自分で `.gitignore` を置くので、`.ai/` と違って `.git/info/exclude` に足さなくてよい（レビュー対応のコミットの `git add -A` にも混ざらない。yomiyasu 2.1.1 で確認）。
 
 ---
 
@@ -1299,6 +1320,7 @@ Codex がこれらを実行しようとして blocked になった場合、Claud
 [ ] Codex pane を閉じる（hunk pane を split していれば先に閉じる。workspace と `└` の行も消える）
 [ ] Claude Code が worktree でコミットする（.ai/ 混入なしを git status で確認）
 [ ] finishing-a-development-branch で merge / PR / reject を人間に確認する
+[ ] PR にするなら本文を yomiyasu で推敲してから gh pr create（§16.1。日本語で yomiyasu があるときだけ）
 [ ] worktree は merge / PR / reject まで残す
 [ ] merge / reject 後: git worktree remove + branch -d（reject は -D）で checkout とブランチを消す（必ず pane close の後）
 ```

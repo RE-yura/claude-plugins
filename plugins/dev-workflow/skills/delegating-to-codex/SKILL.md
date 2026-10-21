@@ -1,7 +1,7 @@
 ---
 name: delegating-to-codex
 description: Use when delegating implementation, fixes, or refactoring to Codex CLI — e.g. the user says 「Codex に実装を委譲して」「Codex にやらせて」「herdr 経由で」, or Claude has finished planning a task whose implementation belongs to Codex per the team's role split (Claude = plan/review/verify, Codex = implement).
-version: "1.6.0"
+version: "1.7.0"
 ---
 
 # Delegating to Codex via Herdr + `/goal`
@@ -69,7 +69,7 @@ Claude Code が実装計画を書き、Herdr 経由で Codex CLI の `/goal` に
 3. root pane に Codex 起動（`--kind codex --pane`）→ 起動確認（生存 + visible read でダイアログ有無を確認）→ 1行 `/goal` を `agent prompt --wait --until idle --until done --until blocked --until unknown` でバックグラウンド送信 → 返ったら「完了の確認」（状態・CODEX_DONE.md・折り返しに強い marker 検索。stalled エラーなら画面確認して対処）
 4. `CODEX_DONE.md`・git diff・テスト結果でレビュー → `REVIEW-N.md`
 5. 問題あれば `FIX-N.md` を書いて同じ pane に再 `/goal`（最大3ラウンド）
-6. APPROVED → `REVIEW-FINAL.md` → ログ保存 → pane close（Codex 用 workspace も消える）→ Claude がコミットし、finishing-a-development-branch で merge / PR / reject を人間に確認（worktree は merge/PR まで残す）
+6. APPROVED → `REVIEW-FINAL.md` → ログ保存 → pane close（Codex 用 workspace も消える）→ Claude がコミットし、finishing-a-development-branch で merge / PR / reject を人間に確認（PR なら本文を yomiyasu で推敲。workflow.md §16.1。worktree は merge/PR まで残す）
 7. merge / reject 後: `git worktree remove` + `branch -d`（reject は `-D`）。必ず pane close の後に行う
 
 詳細手順・テンプレート・安全ルール・チェックリスト: **[workflow.md](workflow.md)**
