@@ -1123,12 +1123,13 @@ PR を作ると決まったら、`gh pr create` の前に本文を [yomiyasu](ht
    - 本文が日本語でない（yomiyasu は日本語専用）
    - スキル一覧に yomiyasu:yomiyasu（プラグインで入れた場合）も yomiyasu（npx skills などで
      入れた場合）も無い（dev-workflow は yomiyasu を必須にしない）
-3. 一覧にあるほうの名前で yomiyasu を起動し、PR_BODY.md を推敲させる。
-   - yomiyasu は元のファイルを書き換えず、最終稿を同じフォルダに別の名前で保存する。
+3. 一覧にあるほうの名前で yomiyasu を起動し、「PR_BODY.md を推敲し、最終稿を同じフォルダの
+   PR_BODY.final.md に保存して」と頼む（ファイルを渡したときの保存先は yomiyasu が決めないので、
+   名前を指定する）。PR_BODY.final.md ができたことを確かめる。
    - yomiyasu が「書き手に確かめたい点」を返したら、本文を書いた Claude Code が PLAN.md・
      REVIEW-*.md・会話から答えて推敲し直す。答えが決まらないものだけを人間に聞く。
    - 推敲の前後の差分は人間に見せない。
-4. 推敲した最終稿（3 を飛ばしたときは PR_BODY.md）で gh pr create --body-file <ファイル> を実行する。
+4. gh pr create --body-file .ai/tasks/<TASK_ID>/PR_BODY.final.md を実行する（3 を飛ばしたときは PR_BODY.md）。
 ```
 
 yomiyasu は状態フォルダ `.yomiyasu/` を git リポジトリの最上位に作るが、中に自分で `.gitignore` を置くので、`.ai/` と違って `.git/info/exclude` に足さなくてよい（レビュー対応のコミットの `git add -A` にも混ざらない。yomiyasu 2.1.1 で確認）。
