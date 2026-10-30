@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""同期実行する hc fixture。記録した fake terminal だけを操作する。"""
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+args = sys.argv[1:]
+root = Path(os.environ['FAKE_HC_DIR'])
+root.mkdir(exist_ok=True)
+with (root / 'calls.jsonl').open('a') as out:
+    out.write(json.dumps(args) + '\n')
+if args == ['--version']:
+    print('hc ' + os.environ.get('FAKE_HC_VERSION', '0.1.14'))
+elif args == ['server', 'status', '--json']:
+    version = os.environ.get('FAKE_HC_CORE', '0.1.14')
+    if version == 'down':
+        sys.exit(1)
+    print(json.dumps({'version': version}))
+elif args[:1] == ['run']:
+    name = args[args.index('--name') + 1]
+    if not re.fullmatch('[a-z0-9_-]{1,32}', name):
+        sys.exit('invalid terminal name')
+    record = root / (name + '.json')
+    if record.exists():
+        sys.exit('terminal already exists')
+    data = {'address': name, 'name': name, 'parent': os.environ.get('HC_TERMINAL_ID'), 'state': 'live'}
+    record.write_text(json.dumps(data))
+    cwd = args[args.index('--cwd') + 1]
+    with (root / (name + '.log')).open('w') as out, (root / (name + '.err')).open('w') as err:
+        result = subprocess.run(args[args.index('--') + 1:], cwd=cwd, stdout=out, stderr=err)
+    data.update(state='finished', exit_code=result.returncode)
+    record.write_text(json.dumps(data))
+    print(json.dumps(data))
+else:
+    action, name = args[:2]
+    record = root / (name + '.json')
+    if not record.exists():
+        print(json.dumps({'error': 'terminal missing'}))
+        sys.exit(1)
+    data = json.loads(record.read_text())
+    if action == 'wait':
+        reason = os.environ.get('FAKE_HC_WAIT', 'exit')
+        if reason == 'error':
+            sys.exit(1)
+        print(json.dumps({'reason': reason, 'exit_code': data.get('exit_code')}))
+    elif action == 'get':
+        print(json.dumps(data))
+    elif action == 'read':
+        count = int(args[args.index('--lines') + 1])
+        screen = os.environ.get('FAKE_HC_SCREEN', 'Python import failed\n')
+        sys.stdout.write(''.join(screen.splitlines(keepends=True)[-count:]))
+    elif action == 'kill':
+        data.update(state='finished', exit_code=143)
+        record.write_text(json.dumps(data))
+        print('{}')
+    elif action == 'rm':
+        if data['state'] == 'live':
+            sys.exit('terminal is live')
+        record.unlink()
+        print('{}')
+    else:
+        sys.exit('unsupported fake hc command')

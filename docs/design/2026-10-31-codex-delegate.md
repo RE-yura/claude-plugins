@@ -40,9 +40,9 @@ dotfiles のロードマップ 段階 3 (`docs/plans/2026-10-31-rebuild-roadmap.
 
 | コマンド | すること |
 |---|---|
-| `cdx doctor` | hc・codex・herdr-app の版、hc core の稼働、Claude プラグインの scope の重複を確かめる |
-| `cdx start [--repo P] [--name N]` | worktree (`../worktrees/<task_id>`, branch `ai/<task_id>`)・`.ai/` の exclude・task dir・`state.json` を作る。mode は `HC_TERMINAL_ID` があれば child、Herdr が動いていれば space、どちらでもなければ hidden |
-| `cdx run [--wait]` | 今のラウンドの Codex を起動する。01 は `codex exec`、02 以降は `codex exec resume <thread_id>`。hc のターミナル (child: `hc run --bg --outlive-parent --no-notify`、space: `herdr-app do space.new --argv`) で動かし、出力は `cdx render` で人が読める形にしてターミナルに出し、生の JSONL は `events.jsonl` に保存する。`--wait` なら終了まで待つ |
+| `cdx doctor` | hc・codex の版、hc core の稼働 (`hc server status --json` の版が CLI と一致するか)、Claude プラグインの scope の重複を確かめる (herdr-app は使わないので見ない) |
+| `cdx start [--repo P] [--name N]` | worktree (`../worktrees/<task_id>`, branch `ai/<task_id>`)・`.ai/` の exclude・task dir・`state.json` を作る。mode は `HC_TERMINAL_ID` があれば child (委譲元の Claude の子として Herdr に出る)、なければ hidden (`hc attach` で見る)。エージェントは Herdr の中で動かす前提なので space モードは作らない |
+| `cdx run [--wait]` | 今のラウンドの Codex を起動する。01 は `codex exec`、02 以降は `codex exec resume <thread_id>`。hc のターミナル (`hc run --bg`。child は `--outlive-parent --no-notify` を付ける) で `cdx _exec` を動かし、出力は `cdx render` で人が読める形にしてターミナルに出し、生の JSONL は `events.jsonl` に保存する。`--wait` なら終了まで待つ |
 | `cdx wait` | 今のラウンドのターミナルが終わるまで `hc wait` で待ち、`thread_id`・exit code・`DONE.json` を state に記録する |
 | `cdx fix` | 最新の `REVIEW.md` が `CHANGES_REQUESTED` のとき、次のラウンドの dir と `PROMPT.md` (FIX の雛形) を作る |
 | `cdx finish [-m MSG]` | 最新 REVIEW が APPROVED なら、final diff を保存し、worktree でコミットし、自分のターミナルを片付ける |

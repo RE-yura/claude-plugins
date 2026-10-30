@@ -1,0 +1,9 @@
+{
+  "name": "codex-delegate",
+  "version": "1.0.0",
+  "description": "実装を Codex exec に委譲し、cdx CLI で起動・待機・レビュー・修正・片付けを管理する",
+  "author": {
+    "name": "yura",
+    "url": "https://github.com/RE-yura"
+  }
+}

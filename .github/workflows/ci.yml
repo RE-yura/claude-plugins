@@ -1,0 +1,65 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  codex-delegate:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: テスト
+        run: python3 -m unittest discover -s plugins/codex-delegate/tests -v
+
+      - name: Python 構文
+        run: |
+          while IFS= read -r -d '' file; do
+            python3 -m py_compile "$file"
+          done < <(find plugins/codex-delegate -type f -name '*.py' -print0)
+          python3 -m py_compile plugins/codex-delegate/skills/delegating-to-codex/cdx
+
+      - name: manifest
+        id: manifests
+        run: |
+          set -euo pipefail
+          jq -e '.name == "re-yura" and (.plugins | type == "array")' .claude-plugin/marketplace.json
+          actual=$(find plugins -mindepth 1 -maxdepth 1 -type d | sed 's|^.*/||' | sort)
+          declared=$(jq -r '.plugins[].name' .claude-plugin/marketplace.json | sort)
+          test "$actual" = "$declared"
+          while IFS= read -r plugin; do
+            jq -e --arg name "$plugin" '.name == $name and (.version | type == "string" and length > 0)' \
+              "plugins/$plugin/.claude-plugin/plugin.json"
+            jq -e --arg name "$plugin" --arg source "./plugins/$plugin" \
+              'any(.plugins[]; .name == $name and .source == $source)' .claude-plugin/marketplace.json
+          done <<< "$actual"
+          jq empty plugins/codex-delegate/skills/delegating-to-codex/templates/done.schema.json
+
+      - name: 版の変更
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = pull_request ]; then
+            base="$PR_BASE"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            base=HEAD^
+          else
+            base=$(git hash-object -t tree /dev/null)
+          fi
+          plugin=plugins/codex-delegate
+          if ! git diff --quiet "$base" HEAD -- "$plugin/"; then
+            manifest="$plugin/.claude-plugin/plugin.json"
+            old=$(git show "$base:$manifest" 2>/dev/null | jq -r '.version' || true)
+            current=$(jq -er '.version' "$manifest")
+            if [ "$old" = "$current" ]; then
+              echo 'プラグインの変更には version の更新が必要' >&2
+              exit 1
+            fi
+          fi

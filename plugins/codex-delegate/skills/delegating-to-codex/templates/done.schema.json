@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {"type": "string", "enum": ["done", "blocked"]},
+    "summary": {"type": "string"},
+    "changed_files": {"type": "array", "items": {"type": "string"}},
+    "tests": {"type": "string"},
+    "risks": {"type": "string"}
+  },
+  "required": ["status", "summary", "changed_files", "tests", "risks"],
+  "additionalProperties": false
+}

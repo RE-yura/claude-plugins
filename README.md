@@ -1,110 +1,25 @@
 # claude-plugins
 
-yura の Claude Code プラグイン marketplace。
-
-## dev-workflow
-
-**Claude を「設計・レビュー担当」、Codex を「実装担当」として分業させ、その運用ルールを Claude に確実に守らせる**プラグイン。
-
-Claude Code は放っておくと設計も実装も自分でやってしまい、計画を書かずに手を動かし始めることもある。このプラグインを入れると、次の2つのルールが**モデルの気分に依存せず**毎回適用される：
-
-1. **設計ドキュメント・実装計画を書くときは、必ず superpowers の brainstorming（要件・設計の探索）→ writing-plans（計画書の執筆）を通す** — いきなり書き始めない
-2. **実装・修正は Codex CLI に委譲する** — Claude が計画ファイルを書き、herdr-core (`hc`) 経由で Codex に `/goal` を送り、完了を待ってレビューし、必要なら修正を依頼するループを回す。手順書（`workflow.md`。hc 版の委譲一巡は E2E で確認する）を同梱
-
-### 仕組み
-
-| コンポーネント | 役割 |
-|---|---|
-| SessionStart hook | 上記ルール2本を**毎セッション開始時に無条件で注入**（CLAUDE.md をどのプロジェクトにも持ち歩くのと同じ効果） |
-| `delegating-to-codex` スキル | 委譲ワークフローの正本。worktree 隔離、hc 内では Claude の子、外では Herdr アプリのタスク用 space（アプリが無ければ `hc attach`）、1行 `/goal`、完了検知（OSC 7501 の状態 + 今回の `Round:` の `CODEX_DONE.md`）、REVIEW/FIX ループ（最大3回）、安全ルールまでの完全な手順書 |
-
-### 使い方
-
-インストール後は hook が自動で誘導するので、普段どおり話すだけでよい：
-
-```
-認証まわりの設計を考えたい     → brainstorming → writing-plans に誘導される
-Codex に実装を委譲して         → delegating-to-codex スキルが起動する
-```
-
-明示的に呼ぶなら「delegating-to-codex スキルで進めて」または `/dev-workflow:delegating-to-codex`。
-
-### 前提環境
-
-このプラグイン自体は設定なしで動くが、委譲ワークフローを実際に走らせるには以下が必要：
-
-| 必要なもの | 何のために | 導入方法 |
-|---|---|---|
-| superpowers プラグイン | ルール1が参照する brainstorming / writing-plans スキルの提供元 | `claude plugin install superpowers@claude-plugins-official`（公式 marketplace、デフォルトで登録済み） |
-| herdr-core (`hc`) | Codex を永続ターミナルで起動・監視・操作する（検証済み 0.1.14） | Herdr の配布から herdr-core を導入。integration install は不要 |
-| Herdr アプリ (`herdr-app`、任意) | Codex を Claude の子またはタスク用 space として見せる（検証済み 0.1.8） | 無くても委譲可能。`hc attach` で画面を見られる |
-| [Codex CLI](https://developers.openai.com/codex/cli) | 実装担当。`/goal`（長時間自律実行モード）を使う | 0.144+ は `/goal` 既定有効。slash command list に出ない場合のみ `codex features enable goals` |
-| jq | hc / herdr-app の JSON 出力のパース | `brew install jq` |
-| [yomiyasu](https://github.com/nanaism/yomiyasu) プラグイン（任意） | PR の本文の推敲。無ければその段を飛ばす | `claude plugin marketplace add nanaism/yomiyasu` → `claude plugin install yomiyasu@yomiyasu` |
+yura の Claude Code プラグイン marketplace。提供するプラグインは codex-delegate。
+Claude が計画・レビューを担当し、Codex exec への実装委譲を cdx CLI で管理する。
+起動・待機・最大3回の修正・承認後のコミット・片付けを状態ファイルで追跡する。hook はない。
 
 ## 導入
 
-ターミナルから（推奨）:
-
 ```bash
 claude plugin marketplace add RE-yura/claude-plugins
-claude plugin install dev-workflow@re-yura
+claude plugin install codex-delegate@re-yura --scope user
 ```
 
-Claude Code セッション内なら:
+Python 3.11+、hc 0.1.x、codex-cli 0.164.0 以降、superpowers スキルが必要。
+「Codex に実装を委譲して」で delegating-to-codex スキルを使う。
+詳しい手順は [SKILL.md](plugins/codex-delegate/skills/delegating-to-codex/SKILL.md)。
 
-```
-/plugin marketplace add RE-yura/claude-plugins
-/plugin install dev-workflow@re-yura
-```
-
-Claude に日本語で頼むなら:
-
-```
-RE-yura/claude-plugins の marketplace を追加して dev-workflow プラグインを入れて
-```
-
-リポジトリ側の `.claude/settings.json` に書いておくと、開いた人に自動でインストール提案が出る:
-
-```json
-{
-  "extraKnownMarketplaces": {
-    "re-yura": {
-      "source": { "source": "github", "repo": "RE-yura/claude-plugins" }
-    }
-  },
-  "enabledPlugins": {
-    "dev-workflow@re-yura": true
-  }
-}
-```
-
-### 旧 marketplace（RE-yura/claude-marketplace）から移行する場合
-
-以前は `RE-yura/claude-marketplace` + npm パッケージ経由で配布していた（現在は更新停止）。そちらで入れた環境は marketplace を登録し直す（marketplace 名・インストール名は同じ）:
+## 開発
 
 ```bash
-claude plugin marketplace remove re-yura
-claude plugin marketplace add RE-yura/claude-plugins
-claude plugin install dev-workflow@re-yura
+python3 -m unittest discover -s plugins/codex-delegate/tests
 ```
 
-## リリース手順
-
-`plugins/dev-workflow/.claude-plugin/plugin.json` の `version` を bump して main に push する。利用者は下の「更新」で取り込む。
-
-## 更新
-
-```bash
-claude plugin marketplace update re-yura
-claude plugin update dev-workflow@re-yura
-```
-
-## アンインストール
-
-```bash
-claude plugin uninstall dev-workflow@re-yura      # プラグインを削除
-claude plugin marketplace remove re-yura          # marketplace 登録ごと削除する場合
-```
-
-一時的に止めるだけなら `claude plugin disable dev-workflow@re-yura`（再開は `enable`）。settings.json 経由で導入した環境では、`enabledPlugins` の該当行を削除（そのリポジトリのみ無効にしたい場合は `.claude/settings.local.json` に `"dev-workflow@re-yura": false`）。いずれも反映には再起動が必要。
+テストは fake hc/codex と一時 Git repo を使う。外部通信はしない。
+プラグインの変更時は `plugins/codex-delegate/.claude-plugin/plugin.json` の version を更新する。CI で検査する。

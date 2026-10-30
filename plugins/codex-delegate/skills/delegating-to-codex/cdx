@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+import json
+import sys
+
+if sys.version_info < (3, 11):
+    print(json.dumps({'error': 'cdx は Python 3.11 以上が必要 (今は {}.{})'.format(
+        sys.version_info[0], sys.version_info[1])}, ensure_ascii=False))
+    sys.exit(1)
+
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cdx_lib.cli import main
+
+if __name__ == '__main__':
+    sys.exit(main())
