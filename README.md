@@ -16,7 +16,6 @@ Claude Code は放っておくと設計も実装も自分でやってしまい�
 | コンポーネント | 役割 |
 |---|---|
 | SessionStart hook | 上記ルール2本を**毎セッション開始時に無条件で注入**（CLAUDE.md をどのプロジェクトにも持ち歩くのと同じ効果） |
-| UserPromptSubmit hook | プロンプトのキーワードに応じて**その瞬間にルールを再注入**。設計/実装/計画/考え/design/plan 等 → ルール1、codex/herdr/hc/委譲/任せ 等 → ルール2。長いセッションで文脈が薄れても効く |
 | `delegating-to-codex` スキル | 委譲ワークフローの正本。worktree 隔離、hc 内では Claude の子、外では Herdr アプリのタスク用 space（アプリが無ければ `hc attach`）、1行 `/goal`、完了検知（OSC 7501 の状態 + 今回の `Round:` の `CODEX_DONE.md`）、REVIEW/FIX ループ（最大3回）、安全ルールまでの完全な手順書 |
 
 ### 使い方

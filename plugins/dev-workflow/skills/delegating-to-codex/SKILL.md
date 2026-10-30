@@ -1,7 +1,7 @@
 ---
 name: delegating-to-codex
 description: Use when delegating implementation, fixes, or refactoring to Codex CLI — e.g. the user says 「Codex に実装を委譲して」「Codex にやらせて」「herdr 経由で」「herdr-core (hc) 経由で」, or Claude has finished planning a task whose implementation belongs to Codex per the team's role split (Claude = plan/review/verify, Codex = implement).
-version: "2.0.0"
+version: "2.0.1"
 ---
 
 # Delegating to Codex via herdr-core (hc) + /goal

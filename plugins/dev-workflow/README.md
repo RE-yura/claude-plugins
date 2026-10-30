@@ -12,7 +12,6 @@
 | コンポーネント | 役割 |
 |---|---|
 | SessionStart hook | 上記ルール2本を毎セッション開始時に無条件で注入 |
-| UserPromptSubmit hook | プロンプトのキーワード（設計/実装/plan/codex/委譲 等）に応じてルールを just-in-time で再注入 |
 | `delegating-to-codex` スキル | 委譲ワークフローの正本。worktree 隔離、hc 内では Claude の子、外では Herdr アプリのタスク用 space（アプリが無ければ `hc attach`）、1行 `/goal`、完了検知（OSC 7501 の状態 + 今回の `Round:` の `CODEX_DONE.md`）、REVIEW/FIX ループ、安全ルールまでの完全な手順書 |
 
 ## インストール
@@ -53,8 +52,7 @@ E2E で確認する: `/goal` の自動継続ターンの境目の状態、`space
 
 ```bash
 # スクリプトと hook のテスト（スタブ使用。実物の hc / herdr-app / codex 不要）
-tests/test-check-versions.sh && tests/test-prompt-rules-reminder.sh \
-  && tests/test-section-refs.sh
+tests/test-check-versions.sh && tests/test-section-refs.sh
 ```
 
 同じテストが GitHub Actions（`.github/workflows/test.yml`）でも push / PR ごとに走る（シェル・JSON の構文チェック込み）。

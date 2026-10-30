@@ -142,7 +142,7 @@ if command -v claude >/dev/null 2>&1; then
   elif [ "$(major_minor "$claude_ver")" = "$(major_minor "$CLAUDE_VERIFIED")" ]; then
     say "OK      claude ${claude_ver}（検証済み ${CLAUDE_VERIFIED} と same-minor）"
   else
-    say "OK      claude ${claude_ver}（検証済み ${CLAUDE_VERIFIED} と minor が異なる — hook（SessionStart / UserPromptSubmit）が発火しているか確認し、問題なければ versions.json を更新）"
+    say "OK      claude ${claude_ver}（検証済み ${CLAUDE_VERIFIED} と minor が異なる — SessionStart hook が発火しているか確認し、問題なければ versions.json を更新）"
   fi
 else
   say "INFO    claude — 見つからない（Claude Code 外から実行している場合は無視してよい。検証済みは ${CLAUDE_VERIFIED}）"

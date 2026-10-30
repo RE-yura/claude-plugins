@@ -30,7 +30,7 @@
       "verified": "2.1.314",
       "policy": "info",
       "check": "claude --version",
-      "note": "Claude Code CLI。hook（SessionStart / UserPromptSubmit）の実行環境。頻繁に更新されるため報告のみで WARN にしない。minor が変わったら hook が発火しているか確認して verified を更新する"
+      "note": "Claude Code CLI。SessionStart hook の実行環境。頻繁に更新されるため報告のみで WARN にしない。minor が変わったら hook が発火しているか確認して verified を更新する"
     },
     "jq": {
       "policy": "presence",
