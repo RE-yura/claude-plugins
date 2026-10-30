@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## 1.0.1 — 2026-10-31
+
+- 誤ってコミットしていた `__pycache__` を外し、`.gitignore` に入れた。
+
 ## 1.0.0 — 2026-10-31
 
 - codex-delegate が dev-workflow を置き換える (replaces dev-workflow)。hook と対話 TUI の /goal 手順を削除。

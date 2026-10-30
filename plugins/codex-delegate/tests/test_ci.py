@@ -1,3 +1,4 @@
+import unittest
 import json
 import os
 import shutil
@@ -76,3 +77,10 @@ class CiTests(RepoCase):
         good['plugins'][0]['source'] = './wrong'
         marketplace.write_text(json.dumps(good))
         self.assertNotEqual(check(), 0)
+
+
+class RepoHygieneTests(unittest.TestCase):
+    def test_no_bytecode_is_tracked(self):
+        repo = SKILL.parents[3]
+        tracked = subprocess.run(["git", "-C", str(repo), "ls-files"], capture_output=True, text=True, check=True).stdout
+        self.assertEqual([path for path in tracked.splitlines() if "__pycache__" in path or path.endswith(".pyc")], [])
