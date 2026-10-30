@@ -1,10 +1,8 @@
-# Claude Code Operating Procedure: Codex Delegation via Herdr + `/goal`
+# Claude Code Operating Procedure: Codex Delegation via herdr-core (hc) + `/goal`
 
-この文書は、Claude Code が詳細な実装計画を作成し、Herdr 経由で Codex CLI の `/goal` に実装を委譲し、Claude Code がレビューし、必要に応じて Codex に修正を繰り返させるための運用手順である。
+この文書は、Claude Code が詳細な実装計画を作成し、herdr-core (`hc`) 経由で Codex CLI の `/goal` に実装を委譲し、レビュー・修正を繰り返すための運用手順である。Claude Code は「実装委譲ワークフローの実行規約」として扱うこと。
 
-Claude Code は、この文書を「実装委譲ワークフローの実行規約」として扱うこと。
-
-> 検証済み環境の正は同ディレクトリの [versions.json](versions.json)（herdr 0.9.4 / codex-cli 0.160.0 / superpowers 6.4.1 / Claude Code 2.1.300、2026-10-15 実機再検証・E2E 委譲一巡。過去: 0.9.3 / 0.9.1 / 0.9.0 / 0.8.2 / 0.8.0 / 0.7.5 / 0.7.1）。委譲開始前に必ず `check-versions.sh` を実行し、実機バージョンとのズレを検出すること（§5）。herdr の CLI はバージョンで大きく変わる（実例: 0.7.5 で `agent start` の署名変更・トップレベル `wait` 廃止・`agent prompt` 追加。0.8.0 で `prompt --wait` が主経路化・`--json` 廃止（JSON がデフォルト）・idle alternate-screen の自動履歴読み。0.9.0 は本書が使うコマンドの引数・出力は不変だが、`prompt --wait` の stalled 判定が厳密化（§2.3）、`workspace close --group` 追加（§17）、worktree 系に `--trust-repository` 追加、`--no-session` 廃止、client/server の protocol が 20→22 で分離・`herdr status` の出力キー変更。0.9.1 は SSH マシン操作・Windows・UI 中心で本書のコマンドは不変。Codex の状態検出が改善（入力欄の装飾で idle を blocked と誤判定しない #4092/#4099）、`worktree create --no-focus` は引き続き尊重される。0.9.3 は本書が使うコマンドの引数は不変。0.9.4 も引数は不変だが、Codex が応答後に unknown のまま残らなくなり（タイトルに spinner がなければ idle）、`--no-daemon` で起動した Codex は hook でターンの開始・終了を報告するようになった。サイドバーの worktree グループの条件も変わった（§6）。**2026-10-15 追記（skill 1.6.0 / plugin 1.7.0）: Codex は `--no-daemon` で起動する**（§9）。**2026-10-13 改訂: Codex レーンは `herdr worktree create` ではなく `git worktree add` + 委譲元 workspace の直下に置く専用 workspace（疑似ツリー。skill 1.5.0 / plugin 1.6.0 で、同日導入のタブ方式から変更）に作る**（herdr の worktree グループはリポジトリ単位で親を選び、同じリポジトリの workspace が複数あると委譲元とは別の workspace の下に表示されるため。§6）。**2026-10-13 追記（skill 1.4.1 / plugin 1.5.1）: 完了待ちは状態だけで抜け（Codex は応答後に unknown のまま残ることがあるので `--until unknown` も足す）、marker は Codex の折り返しで割れても拾える方法で探す**（marker が1行で出るまで回るループが終わらず、完了に約4時間気付かなかったため。§2.3・§10））。動かない場合はまず引数なし実行で usage を確認し、`herdr --skill`（0.8.0+、同梱の公式エージェント向け説明）と公式 https://herdr.dev/docs/agent-automation/ に突き合わせること。ただし **`herdr worktree create` は引数なしでも既定値で即実行される**ので（本流では使わないが）usage 確認目的で叩かないこと（0.7.4 実測。§17.1）。
+> 検証済み環境の正は同ディレクトリの [versions.json](versions.json)（hc 0.1.14 / herdr-app 0.1.8 / codex-cli 0.164.0 / superpowers 7.0.0 / Claude Code 2.1.314、2026-10-30）。委譲開始前に `check-versions.sh` を実行する（§5）。正確な引数は `hc --skill`・`herdr-app --skill`・`hc <command> --help`・`herdr-app commands` で確認する。以下の実機確認済みの記述は 2026-10-30 時点。2026-10-30 E2E で child / space の両モードの初回実装・修正・片付けを確認した。child ではタグ無し送信と background terminals の対処が必要だった（§2.1・§18.7）。
 
 ---
 
@@ -13,245 +11,87 @@ Claude Code は、この文書を「実装委譲ワークフローの実行規�
 Claude Code と Codex の役割を分離する。
 
 ```text
-Claude Code = 設計者・計画作成者・レビュアー・承認者
-Codex CLI   = 実装担当・テスト実行担当・修正担当
-Herdr       = 委譲元 workspace の直下に Codex 用 workspace を用意し、agent の起動・入力送信・進捗可視化・状態検知を行う
-Git worktree = Codex が安全に編集する隔離された作業領域（git worktree add で作る。herdr の worktree 機能は使わない）
-Task files  = Claude Code ↔ Codex 間の契約・状態・成果物
+Claude Code  = 設計者・計画作成者・レビュアー・承認者
+Codex CLI    = 実装担当・テスト実行担当・修正担当
+hc           = Codex の起動・状態取得・入力送信・待ち・ログ取得・片付け
+Herdr アプリ = Claude の子、またはタスク用 space として Codex を見せる
+Git worktree = Codex が安全に編集する隔離された作業領域（git worktree add）
+Task files   = Claude Code ↔ Codex 間の契約・状態・成果物
 ```
 
-このワークフローのゴールは、Codex の画面出力をその場限りで読むことではない。`PLAN.md`、`CODEX_GOAL.md`、`PROGRESS.md`、`CODEX_DONE.md`、`REVIEW-N.md`、`FIX-N.md`、`git diff` を残し、Claude Code が確実にレビュー・修正指示・承認を行える状態にすることである。
+`PLAN.md`、`CODEX_GOAL.md`、`PROGRESS.md`、`CODEX_DONE.md`、`REVIEW-N.md`、`FIX-N.md`、`git diff` を残し、Claude Code が確実にレビュー・修正指示・承認を行える状態にする。
 
 ---
 
 ## 2. 基本方針
 
-### 2.1 Herdr の使い分け
+### 2.1 hc と herdr-app の使い分け
 
-Claude Code は、原則として次の順で Herdr を使う。
+プログラムの制御は hc、画面の変更は herdr-app に分ける。Codex への送信には、ここで一度だけ定義する `hc_raw` を使う。
 
-```text
-第一選択: herdr agent ...
-  Codex を名前付き agent として扱う。
-  start / get / read / wait / prompt / send-keys / focus / rename に使う。
-  ターゲットは agent 名と、agent が居る pane の id。
-
-補助: herdr pane ...
-  pane の用意（workspace create の root pane、pane split）、shell コマンド実行（pane run）、
-  キー送信（send-keys）、Enter なしの文字列配置（send-text）、pane close に使う。
-  完了 marker の検出に pane wait-output は使わない（§2.3）。
-  pane コマンドのターゲットは pane id のみ（agent 名は不可）。
-
-後回し: socket API
-  §6 のレーンの並べ替え（place-lane.sh の workspace.move_block。CLI に無いため）だけに使う。
-  常駐 orchestrator、イベント購読、Herdr plugin 化、複数 agent の大規模制御には、必要になるまで使わない。
+```bash
+# エージェントのターミナルの中から hc send すると <hc from="tN"> で包まれ、slash command が効かない。
+# Codex への送信はタグを付けないこれを使う（2026-10-30 E2E で確認）
+hc_raw() { env -u HC_TERMINAL_ID -u HC_SCOPE hc "$@"; }
 ```
 
-使い分けの実務ルール:
+Claude Code の Bash ツールは呼び出しをまたいでシェル関数を引き継がないので、`hc_raw` を使う以下のコードブロックには毎回この定義の行を入れてある。`hc_raw send` は `/goal`・`/goal clear`・`/goal pause`・`/stop` を slash command のまま届ける。`hc keys`・`get`・`read`・`wait`・`run` は通常の hc を使う。呼び出し元を外すので、Claude の入力欄への入力で待ちが返る `reason: message` の挙動は期待できない。300秒のチェックインで確認する。`~/.config/herdr-core/config.toml` の `notes = false` でもタグを消せるが、全エージェントに効くので使わない。
 
-```text
-/goal・プロンプトを送って完了まで待つ ->
-  herdr agent prompt <agent> "<text>" --wait --until idle --until done --until blocked --until unknown
-  （0.8.0 の主経路。text + エンコード済み Enter を送信し、指定した settled state
-    到達で返る。bracketed paste 尊重・複数行も1メッセージ。
-    送信後5秒以内に working|blocked が観測できないと agent_prompt_stalled エラー。
-    0.9.0 で厳密化: 無関係な idle/done 遷移では満たされない。--timeout を省くと
-    activity 観測後は無期限に待つ。付けた場合は先に切れれば timeout エラー。
-    どちらのエラーも「未送達」の証明ではない → §2.3。unknown を足す理由も §2.3）
-送信だけして待たない -> herdr agent prompt <agent> "<text>"（--wait なし）
-Codex TUI に文字列だけ置く（Enter なし） -> herdr pane send-text <pane_id> "<text>"
-Codex の直近出力を読む -> herdr agent read <agent> --source recent-unwrapped --lines 200
-  （plain text がそのまま出る。jq 不要）
-Codex の semantic state を待つ -> herdr agent wait <agent> --until idle --until done --until blocked --until unknown
-  （--until なしの既定は idle|done|blocked で unknown を含まない。現在の状態が
-    既に一致していると即座に返るので、working のときだけ使う。§2.3）
-完了 marker を探す -> agent read の出力から空白・改行を除いて探す（§2.3）
-  （pane wait-output の --match / --regex は1行ずつしか照合しないので、Codex が
-    折り返した marker を拾えない。公式 CLI reference も agent には agent wait を勧める）
-ダイアログ操作のキー送信 -> herdr agent send-keys <agent> enter（0.8.0。pane send-keys でも可）
-普通の shell pane に command を打つ -> herdr pane run <pane_id> "<cmd>"
-```
+| 操作 | コマンド |
+|---|---|
+| 起動 | `hc run --bg`（§9） |
+| 状態 | `hc get <codex> --json` |
+| 送信とそのターンの待ち | `hc_raw send --wait --timeout 300 <codex> "<text>"` |
+| 作業中の待ち直し | `hc wait <codex> --timeout 300` |
+| 読み取り | `hc read <codex> --lines N`（画面全体 + その上の履歴N行。テキスト。jq に通さない） |
+| キー | `hc keys <codex> enter` / `esc` |
+| 送信のみ | `hc_raw send <codex> "<text>"` |
+| 現在のターンを止める | `hc interrupt <codex>` |
+| 片付け | `hc kill <codex>` → `hc rm <codex>` |
 
-JSON とテキストの区別（0.8.0 実測）:
+`herdr-app do` は画面を変える。委譲ではタスク用 space の作成（§6・§9）、その space を閉じる操作（§15）、レビューの可視化（§13.1）に限る。`herdr-app ls` / `status` / `commands` は読むだけ。ユーザーの他のターミナルや space は操作しない。
 
-- `agent get` / `agent start` / `agent prompt` / `workspace create` / `workspace get` /
-  `pane move` / `pane wait-output` / `workspace list` は
-  `{"id":...,"result":{...}}` の JSON エンベロープを返す。pane id は
-  `jq -r '.result.agent.pane_id'` のように取り出す。0.8.0 で JSON がデフォルトに
-  なり **`--json` フラグは廃止**（worktree 系のみ互換のため受理されるが付けない。
-  `workspace list --json` 等は usage エラーになる）。
-- **`agent read` と `pane read` は plain text をそのまま出力する**（0.7.5 で
-  agent read も plain text 化。旧版の `jq -r '.result.read.text'` は parse error
-  になるので使わない）。
-
-`--source` の使い分け: `recent-unwrapped` は履歴バッファで、バッファ末尾に空行が
-並びがちなため **`--lines` が小さいと空に見える**（`--lines 200` 以上を推奨。
-0.8.0 でも実測で再現）。「いま画面に映っているもの」が欲しいときは
-`--source visible` を使う。送信直後は recent バッファへの反映に数秒の遅延が
-あり得るので、直後の読み取りで marker が無くても即断しないこと。`recent-unwrapped` が
-つなぐのは端末の soft wrap だけで、Codex が自分で入れた改行はつながらない（§9 補足）。Codex 等の全画面 TUI
-は代替画面（alternate screen）に描画するが、**0.8.0 は idle になった agent の
-代替画面からテキスト履歴を自動収集する**ため、完了後の read で全トランスクリプト
-が取れる（実測: goal エコーから最終 marker まで取得できた）。working 中の読み
-取りは従来どおり不完全なことがある。成果物をファイル（CODEX_DONE.md 等）を正と
-する方針は維持する（公式もフォールバックとして同パターンを推奨）。
-
-その他の実測挙動:
-
-- `herdr pane run` は成功時に**何も出力しない**（exit 0 のみ）。出力が空でも失敗と
-  みなさないこと。
-- **terminal id（`term_...`）は herdr 再起動で変わる**。スクリプトやログに terminal
-  id を保存して使い回さず、ターゲットは agent 名を正とする。
+hc の出力は pipe 先では JSON（`run`・`exec`・`read`・`file read` はテキスト）。`run --bg` の起動応答は JSON なので §9 で保存する。明示的に JSON が必要なら `--json` を使う。エラーは stderr の `{error: {kind, message, hint}}`。主な exit code は 3 not_found / 9 blocked / 10 status_mismatch / 11 finished。終了コードとエラーを読み、失敗した起動や送信を成功扱いしない。
 
 ### 2.2 `/goal` には長文を貼り付けない
 
-Codex の `/goal` に巨大な計画全文を貼り付けない。Claude Code は詳細をファイルに書き、Codex には **1行の `/goal`** でそのファイルを読ませる。
-
-良い例:
+詳細はファイルに書き、Codex には **1行の `/goal`** でそのファイルを読ませる。
 
 ```text
-/goal Read .ai/tasks/<TASK_ID>/CODEX_GOAL.md and implement it exactly. When complete print HERDR_TASK_DONE:<TASK_ID>; if blocked print HERDR_TASK_BLOCKED:<TASK_ID>.
+/goal Read .ai/tasks/<TASK_ID>/CODEX_GOAL.md and implement it exactly. Write CODEX_DONE.md when complete, or BLOCKED.md if blocked.
 ```
 
-悪い例:
+計画全文を貼らない。ファイル参照なら Codex が読み直せ、Claude Code が後から `PLAN.md` / `FIX-N.md` / `REVIEW-N.md` を検証できる。
 
-```text
-/goal <PLAN.md の全文を長大に貼り付ける>
-```
+`/goal` の usage は `/goal [<objective>|clear|edit|pause|resume]`（2026-10-30 E2E で確認）。引数なしは状態表示、objective は設定、`edit` は編集である。
 
-理由:
+### 2.3 完了判定は二重にする
 
-- 画面出力だけを source of truth にするとレビュー不能になる。
-- ファイル参照にすれば Codex が読み直せる。
-- Claude Code が後から `PLAN.md` / `FIX-N.md` / `REVIEW-N.md` を検証できる。
+次の2つを照合する。状態だけで実装完了とみなさない。
 
-（0.7.5+ の `agent prompt` は bracketed paste を尊重し、複数行テキストも1メッセージ
-として送れることを実測済み。旧版にあった「改行が Enter として解釈される」問題は
-解消されたが、上記の理由によりファイル契約は維持する。）
-
-`/goal` のサブコマンドは `/goal <objective>`（設定）、`/goal`（状態表示）、`/goal pause`、`/goal resume`、`/goal clear`（codex-cli 0.128+、公式ドキュメント確認済み）。
-
-### 2.3 完了判定は三重化する
-
-`HERDR_TASK_DONE` または Herdr の `done` / `idle` だけで実装完了とみなさない。
-
-Claude Code は次の3つを組み合わせて判断する。
-
-```text
-1. Herdr semantic state
-   - idle / working / blocked / done / unknown
-   - 0.8.0 で公式定義が明文化: idle = 入力可能 かつ その tab が focused UI で
-     既読。done = 未読のままバックグラウンド作業が終わった同じ idle 状態。
-     CLI read では既読にならない。→ CLI 駆動の本フローでは完了は done になる
-     （実測）。人間が Codex の画面を見ていると idle になり得る。
-   - 公式 Agents ページ（0.9.3）: Codex は画面の spinner で working を判定するが、
-     ターンの終わりは画面から確定できないので「応答後も unknown のまま残ることが
-     あり、idle や完了を待つ wait は返らないことがある」。待ちの既定
-     （idle|done|blocked）は unknown を含まないので、完了待ちは
-     --until idle --until done --until blocked --until unknown と明示する。
-     作業中に一瞬 unknown になって早めに返っても、下の「完了の確認」で
-     working なら待ち直せばよい（早く起きる損は小さく、起きない損は大きい）。
-   - herdr 0.9.4 では Codex もほかのエージェントと同じく、どの規則にも当たらないときは
-     idle に倒す（タイトルに spinner がなければ idle。#4507）。unknown に残るのはタイトルを
-     出さないときなどに限られるが、`--until unknown` は害がないので付けたままにする。
-     逆に、作業の途中で一瞬 idle と判定されて早く返ることはあり得るので、返ったら
-     下の「完了の確認」で画面まで見る（2026-10-15 の E2E では早く返らず、done で返った）。
-   - `--no-daemon` で起動した Codex（§9）は、herdr の hook（integration v9）が
-     ターンの開始（UserPromptSubmit → working）と終了（Stop / Interrupt → idle）を
-     直接報告する（0.9.4、#4756）。ただし hook はユーザーが Codex で trust したときだけ動く
-     （§9-5）。動いていなければ画面からの判定になる。
-   - 完了待ちは `agent prompt --wait`（§10）で行い、返ってきた JSON の
-     .result.agent.agent_status で分岐する。待ちの抜け条件は状態だけにし、
-     marker の有無で抜けるループを書かない（2026-10-13 macmini で、marker が
-     折り返されて見つからず、Codex の完了に約4時間気付かなかった）。
-
-2. 明示 marker（補助）
-   - HERDR_TASK_DONE:<TASK_ID>
-   - HERDR_TASK_BLOCKED:<TASK_ID>
-   - HERDR_TASK_DONE:<TASK_ID>:fix-01
-   - Codex は長い行を pane の幅で自分で折り返す。pane が狭いと marker が
-     "• HERDR_TASK_DONE:<TASK_ID の前半>" と "  <後半>" の2行に割れる（§9 補足）。
-     `recent-unwrapped` はこの改行をつながず、`pane wait-output` の --match /
-     --regex は1行ずつしか照合しない（公式 CLI reference）ので、どちらでも
-     割れた marker は見つからない。下の「完了の確認」のとおり、agent read の
-     出力から空白と改行を除いてから探す。
-   - /goal 本文にも marker 文字列が入るので、goal のエコー行
-     （"• Goal active Objective: ... print HERDR_TASK_DONE:..."）に注意する。
-     空白を除くとエコー行は "printHERDR_TASK_DONE:..." になり、Codex の実際の
-     print は "•HERDR_TASK_DONE:..." になる。行頭の "•" 付きで探せば区別できる。
-
-3. ファイルと Git 差分（主）
-   - CODEX_DONE.md（blocked なら BLOCKED.md）
-   - PROGRESS.md
-   - git diff
-   - test/lint 結果
-```
-
-`HERDR_TASK_DONE` は「Codex の1回の goal が止まった」という意味であり、Claude Code の承認完了ではない。
+1. `hc get <codex> --json` の `.state`（`live` / `finished`）と `.status.state`（`working` / `idle` / `done` / `blocked` / `error`）。Codex 自身が OSC 7501 で報告し、hc は画面から推測しない。報告が無ければ `status` は null。起動確認後は `.foreground.name` も確認し、codex でなくなったら Codex の終了として §18.6 へ進む（space モードではターミナルが live のまま zsh に戻る）。
+2. `CODEX_DONE.md`（**先頭行**の `Round: initial` / `Round: fix-NN` が今回のラウンドか、かつ送信マーカー `$SENT` より新しいか）と `BLOCKED.md`。レビューではさらに `PROGRESS.md`・git diff・テスト結果を読む。
 
 **完了の確認**（待ちが返った後、毎回行う）:
 
 ```bash
-# 1. 状態
-STATUS="$(herdr agent get "$AGENT" | jq -r '.result.agent.agent_status // empty')"
-echo "$STATUS"
-
-# 2. 成果物（主）
+hc get "$CODEX" --json | tee "$TASK_DIR/logs/get.json" | jq -c '{state, status, exit_code, foreground: .foreground.name}'
 ls -l "$TASK_DIR/CODEX_DONE.md" "$TASK_DIR/BLOCKED.md" 2>/dev/null
-
-# 3. marker（補助）。空白・改行を除いてから、行頭の "•" 付きで探す。
-#    最後に見つかったものがこのラウンドの marker（修正ラウンドは :fix-NN 付き）かを確かめる。
-#    履歴の読み取り（recent-unwrapped で画面より多い行）は idle / done のときしかできず、
-#    unknown・blocked・working では agent_not_idle になる（公式 Agent automation）ので visible を読む。
-#    LC_ALL=C は BSD tr が不正なバイト列で止まらないようにするため
-SRC=recent-unwrapped; case "$STATUS" in idle|done) ;; *) SRC=visible ;; esac
-herdr agent read "$AGENT" --source "$SRC" --lines 500 \
-  | LC_ALL=C tr -d '[:space:]' \
-  | grep -oE "•HERDR_TASK_(DONE|BLOCKED):$TASK_ID(:fix-[0-9]{2})?" | tail -1
+if [ -f "$TASK_DIR/CODEX_DONE.md" ]; then
+  head -n1 "$TASK_DIR/CODEX_DONE.md"   # initial / fix-NN を今回と照合する
+fi
 ```
 
-- marker の正規表現は緩めない。空白を除くと次の行の文字がすぐ後ろに続くので、
-  `fix-[0-9]+` のように書くと次の行頭の数字まで取り込む（`fix-[0-9]{2}` にしている。
-  FIX 番号は2桁）。goal で独自の suffix（`-part1` 等）を付けた marker を print させた
-  場合は、`$TASK_ID` の部分にその suffix まで含める。
-- 探せるのは、Codex が marker を単独のメッセージ（行頭が "•"）として出した場合だけ。
-  複数行のメッセージの途中に入ると見つからないので、CODEX_GOAL.md / FIX-N.md で
-  「最後に marker だけのメッセージを出す」よう指示する（§8・§14.1）。見つからなければ
-  §18.3（marker missing）として成果物で判断する。
+- `working` のまま今回の `CODEX_DONE.md` が送信マーカーより新しい: §18.7 で画面を確認する。background terminals が残っている場合があり、無条件に待ち続けない。
+- `working` で今回の新しい報告が無い: §10 のループで待ち直す。`reason: timeout` は完了ではない。`hc_raw` では Claude の入力欄への入力による `reason: message` は期待しない。
+- `done` / `idle` で今回の `CODEX_DONE.md` がある: §18.7 の画面確認で background process / terminal の申告も確かめ、ログを保存してレビューへ（§12・§13）。これはレビュー開始の条件であり、停止の条件ではない。
+- `done` / `idle` で `CODEX_DONE.md` が無い: 画面を読む。ダイアログに goal が飲まれたか、goal がまだ続いているかを確認し、すぐに送り直さない（§18.2）。2026-10-30 E2E で自動継続ターンの境目は起きたが、background terminals が残っている間は done / idle を出さなかった。ループは今回の CODEX_DONE.md の新しさで抜けるので、どちらでも動く。background terminals が無いときの境目で一度 done になった場合は、ループを抜けて §2.3 → §18.2 で画面を読む（この経路は未確認）。
+- `blocked`: `BLOCKED.md` と画面を読み、§18.1 へ。
+- `error`: `hc read` で理由を確認する。
+- `.state: finished` または起動確認後の `.foreground.name` が codex でなくなった: 状態報告より終了を優先し、§18.6 へ。
+- `status: null`: 起動中のダイアログでは正常（§9）。goal 送信後も報告が無ければ §18.4 へ。
 
-状態ごとの扱い:
-
-- `working`: 作業中に一瞬 unknown になって早く返っただけ。§10 の `agent wait` で待ち直す。
-- `unknown` で成果物も marker も無い: まだ作業中かを短く確かめる
-  （`herdr agent wait "$AGENT" --until working --until idle --until done --until blocked --timeout 60000`）。
-  working が返れば §10 の `agent wait` で待ち直し、idle / done / blocked が返ればこの確認を
-  やり直す。timeout なら §18.4。ここで goal を送り直さない（二重送信になる）。
-- `idle` / `done` / `blocked` で成果物も marker も無い: goal が Codex のダイアログに
-  飲み込まれた可能性がある（§9-5・§18.2）。visible read で画面を確認する。画面に
-  `• Working (…)` が出ていてまだ作業中なら、早く返っただけなので、状態が working に
-  戻るのを短く待ってから（`herdr agent wait "$AGENT" --until working --timeout 60000`）
-  §10 の `agent wait` で待ち直す。ここでも goal は送り直さない。
-
-送信直後のレース（0.7.5 の「送信後すぐ完了待ちに入ると前ラウンドの done/idle で
-即 return する」問題）は、0.8.0 では `agent prompt --wait` が内部で処理する:
-working でない状態から送ったプロンプトは **送信後5秒以内に `working` または
-`blocked` が観測できなければ `agent_prompt_stalled` エラーが返る**（公式仕様。偽 done で
-即返しない。実測: 送信→working 遷移→1分27秒ブロック→done で返却）。0.9.0 で
-この判定は厳密化され、無関係な idle/done/session 変化ではゲートを通過しない
-（#3506, #3685）。また caller の `--timeout` は送信時間を含み、先に切れれば
-`timeout` エラーになる。あわせて 0.8.0 は送信テキストの後 Enter まで短い待ちを
-入れるようになり、旧版の「TUI 初期化中のプロンプトが composer に残ったまま無音で
-消える」問題も修正された（release notes #1878）。したがって `--until working`
-による開始確認は不要。逆に、送信直後の待ちを単独の `agent wait` で始めてはいけない。
-`agent wait` は現在の状態が既に一致していると即座に返る（公式 Agent automation）ので、
-前ラウンドの done で即 return してしまう。送信と待ちは `agent prompt --wait` の1コマンドで行う。
-
-**`agent_prompt_stalled` / `timeout` はプロンプト未送達の証明ではない**（0.9.0
-`--skill` の明記）。返ったら盲目的に再送せず、まず visible read で画面を確認する:
-(a) ダイアログ表示中（§9）→ 対処してから再送、(b) goal が composer に残っている
-（Enter が効いていない）→ `agent send-keys <agent> enter` のみ、(c) 既に working で
-実行中 → 再送せず `agent wait`（§2.1 の --until）で合流。round ごとに marker を変える設計（`:fix-N`）は
-引き続き取り違えの保険になる。
+前のラウンドの `done` を拾わないため、送信直後の待ちは単独の `hc wait` で始めず、`hc_raw send --wait` で「この送信が始めたターン」を待つ。`not_started` は未送達の証明ではない。画面を読み、盲目的に再送しない（§10）。
 
 ---
 
@@ -264,243 +104,127 @@ Codex が作業する Git worktree の中に、次の task directory を作る�
   PLAN.md                 # Claude Code が作る詳細実装計画
   CODEX_GOAL.md           # Codex が最初に読む実装契約
   PROGRESS.md             # Codex が checkpoint ごとに更新する進捗ログ
-  CODEX_DONE.md           # Codex が完了時に書く完了報告
+  CODEX_DONE.md           # 先頭行 Round: initial / Round: fix-NN
   BLOCKED.md              # Codex が blocked のときに書く任意ファイル
-  REVIEW-01.md            # Claude Code のレビュー
-  FIX-01.md               # Claude Code から Codex への修正依頼
+  REVIEW-01.md
+  FIX-01.md
   REVIEW-02.md
   FIX-02.md
-  REVIEW-FINAL.md         # Claude Code の最終承認または中止理由
+  REVIEW-FINAL.md
   logs/
-    agent-start.json
-    agent-get.json
-    codex-pane-*.txt
+    lane.json             # task_id / mode / caller_terminal / codex / created_at
+                          # space / tab は作ったときだけ
+    run.json
+    get.json
+    goal-initial.sent
+    send-wait.json
+    wait-last.json
+    fix-NN.sent
+    send-wait-fix-NN.json
+    codex-*.txt
     final.diff
     final-status.txt
     test-results.txt
 ```
 
-重要: main checkout に未コミットで作った task files は、別 worktree には自動では存在しない。Claude Code は worktree を作成した後、Codex が読む task files を **Codex worktree 内**に作成すること。
-
-また、`.ai/` は untracked のまま Codex の `git status` / diff に混ざり、Codex が誤ってコミットに巻き込むリスクがある。worktree 作成直後に `.git/info/exclude` へ `.ai/` を追加して Git から隠すこと（§6 参照）。
+main checkout の未コミット task files は別 worktree に自動では存在しない。必ず **Codex worktree 内**に作る。`.ai/` が diff/status やコミットに混ざらないよう、作成直後に Git の info/exclude に足す（§6）。
 
 ---
 
 ## 4. 推奨ライフサイクル
 
 ```text
-0. Claude Code が check-versions.sh で依存バージョンを検証する（§5）
-1. Claude Code が TASK_ID を作る
-2. Claude Code が git worktree add で Git worktree を作って .ai/ を exclude し、Codex 用 workspace を作って委譲元の直下へ移す（疑似ツリー。応答 JSON の root pane id を控える。§6）
-3. Claude Code が Codex worktree 内に PLAN.md / CODEX_GOAL.md を作る
-   （brainstorming → writing-plans。§7 参照）
-4. Claude Code が Codex 用 workspace の root pane に Codex agent を起動する
-   （agent start --kind codex --pane）
-5. 起動確認を行う（agent get で生存確認 + visible read でダイアログの有無と
-   入力プロンプト表示を確認）
-6. Claude Code が Codex TUI に 1行の /goal を agent prompt --wait で送る
-   （stalled / timeout エラーなら画面確認→送達済みか判断→対処。§2.3）
-7. Codex が実装し、PROGRESS.md を更新する
-8. Codex が CODEX_DONE.md を作り、HERDR_TASK_DONE:<TASK_ID> を出す（状態は done になる）
-9. Claude Code が pane output / git diff / CODEX_DONE.md / test 結果を保存する
-10. Claude Code がレビューし、REVIEW-01.md を書く
-11. 問題があれば FIX-01.md を書き、同じ Codex pane に再 /goal する
-12. 修正ループを最大3回まで繰り返す
-13. 承認できたら REVIEW-FINAL.md に APPROVED を書く
-14. ログと差分を保存する
-15. Codex pane を閉じる
-16. Claude Code が worktree でコミットし、finishing-a-development-branch で
-    merge / PR / reject を人間に確認する
-17. worktree は merge / PR / reject が終わるまで残す
+0. check-versions.sh で依存バージョンと core を確認する（§5）
+1. TASK_ID と git worktree を作り、.ai/ を exclude する（§6）
+2. child / space / hidden を選び、logs/lane.json に委譲元を記録する
+3. brainstorming → writing-plans で PLAN.md、CODEX_GOAL.md を worktree 内に書く（§7・§8）
+4. Codex を --no-daemon で起動し、状態と画面を確認してダイアログを処理する（§9）
+5. 1行 /goal を hc_raw send --wait で送り、working かつ今回の新しい報告が無い間は hc wait。報告がある working は画面を確認する（§10・§18.7）
+6. Codex が実装し、PROGRESS.md と CODEX_DONE.md を書く
+7. 状態・今回の Round を確認し、ログと差分を保存する（§2.3・§12）
+8. Claude Code がレビューして REVIEW-01.md を書く（§13）
+9. 必要なら FIX-01.md を同じ Codex に再 /goal。修正は最大3ラウンド（§14）
+10. APPROVED → REVIEW-FINAL.md → ログ保存 → Codex の停止・片付け（§15）
+11. Claude Code がコミットし、finishing-a-development-branch で merge / PR / reject を確認する（§16）
+12. merge / reject 後に worktree を消す。PR 中は残す（§17）
 ```
 
 ---
 
 ## 5. 初期セットアップ確認
 
-**Step 0（必須）**: 委譲を開始する前に、依存バージョンチェッカーを実行する。
+**Step 0（必須）**: 委譲開始前にチェッカーを実行する。
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}"/skills/delegating-to-codex/check-versions.sh
-# CLAUDE_PLUGIN_ROOT が未設定の文脈では、この workflow.md と同じディレクトリの
-# check-versions.sh を実行する
+# CLAUDE_PLUGIN_ROOT が未設定なら workflow.md と同じディレクトリのスクリプトを使う
 ```
 
-チェッカーは [versions.json](versions.json)（検証済みバージョンの正）と実機の
-herdr / codex / superpowers / jq を突き合わせ、ツールごとに OK / WARN / MISSING を
-出力する。herdr については `herdr status` で **client と server の整合**も見る
-（0.9.0 で protocol 20→22。mise 等で client を入れ替えた直後は既存シェルの PATH に
-旧 client が残り、`herdr --version` は旧版・server は新版という状態になる。この
-とき agent/workspace 系は全て `protocol_mismatch` の JSON エラーを返す — exit 0
-なのでスクリプトは気づけない。実測 2026-09-08。新しいシェルを開くか、mise shims の
-herdr を使って揃える）。**exit は常に 0 でブロックはしない** — WARN が出たら各行に書かれた
-次アクション（herdr --skill と usage の照合、goals feature の確認など）を実施し、
-本書との差分を把握してから進むこと。バージョンを上げて再検証したら
-versions.json を更新する。hook 等から低ノイズで呼ぶ場合は `--quiet`（全 OK なら
-無出力、WARN / MISSING があるときだけその行と件数を出す）を使う。
+[versions.json](versions.json) と hc / herdr-app / codex / superpowers / claude / jq を照合する。hc は same-minor と `hc server status --json` の `.version` を確認する。CLI だけ更新して稼働中 core が古ければ WARN。**core の再起動はユーザーに確認してから**行う。勝手に `hc server stop` / 再起動をしない。hc が無ければ MISSING、core に繋がらなければ WARN、herdr-app が無くても INFO のみで委譲できる（見せ方だけ変わる）。
 
-herdr が検証済みより新しいときは、versions.json の `on_newer` に書いた確認事項を
-`INFO` で出す（件数には数えない。`--quiet` では出さない）。現在の内容は「herdr 本体に
-起動元エージェントの下への入れ子表示（#3153 / #4795 / #5210）が入ったか確認する」。
-この行が出たら、リリースノートを確かめて入っていればユーザーに伝え、§6 の疑似ツリーから
-乗り換えるか相談する。
+チェック結果は OK / WARN / MISSING / INFO、exit は常に 0 でブロックしない（不明な引数は usage error）。WARN の次アクションを確認してから進む。`--quiet` / `-q` は WARN / MISSING とその件数のみを出す。版を上げて再検証したら versions.json を更新する。
 
-続けて、必要に応じて次を確認する。
-
-```bash
-herdr integration status || true
-```
-
-未導入なら、一度だけ以下を案内または実行する（herdr の integration は自動では
-入らない。これがないと `agent wait` の状態検知が働かない）。
-
-```bash
-herdr integration install codex
-herdr integration install claude
-```
-
-`/goal` は codex-cli 0.144+ では feature `goals` が stable・既定有効のため、通常は追加設定不要（実測: `codex features list` で stage=stable / effective=true）。`/goal` が Codex の slash command list に出ない場合（古い codex 等）のみ、`codex features enable goals` を実行するか、Codex の `config.toml` に以下を入れる。
+hc の integration install は不要。Codex は OSC 7501 を自分で出す。`/goal` は codex-cli 0.144+ で既定有効。slash command list に出ない場合だけ `codex features enable goals` または設定を確認する。
 
 ```toml
 [features]
 goals = true
 ```
 
-注意（実測）: Codex CLI は起動時にアップデート系の割り込みを出すことがある。
+Codex の起動時にはアップデート確認が出ることがある。2026-10-30 の codex-cli 0.164.0 では「1. Update now / 2. Skip / 3. Skip until next version」。起動直後に goal を送ると Enter が Update now を選び得るため、必ず §9 の画面確認を先に行う。自己更新で終了していた場合は §18.6 へ。
 
-- 自動アップデートして「Please restart Codex」で**即終了する**（0.145 実測。
-  agent は `agent_not_found` になる → 同じ pane にもう一度 `agent start`）。
-- **対話式アップデートダイアログ**を出して止まる（0.145→0.146 で実測:
-  「1. Update now / 2. Skip / 3. Skip until next version — Press enter to
-  continue」）。このとき status は `idle` のままで `blocked` にならず（0.9.3 + 検出 manifest
-  2026.10.11.1 と 0.9.4 では `blocked` と判定され、`agent start` は `agent_not_ready` で返る。§9）、
-  **そのまま /goal を送ると Enter が「1. Update now」を選んでしまう**。
-  visible read で検出し、`pane send-text <pane_id> "2"` + `agent send-keys
-  <agent> enter` で Skip してから送信する。
-
-いずれも `agent start` 直後の §9 起動確認（生存 + visible read）で検出できる。
+挙動の実験では **ユーザーの既定の core にターミナルを作らない・消さない**。`HC_SESSION=codex-plan-test` と一時の `XDG_STATE_HOME` / `XDG_RUNTIME_DIR` / `XDG_CONFIG_HOME` を使い、終わったらその環境の `hc server stop` だけを行う。`--help` / `--skill` / `herdr-app commands` は読むだけで確認できる。
 
 ---
 
-## 6. TASK_ID・worktree・Codex 用ワークスペース（疑似ツリー）の作成
+## 6. TASK_ID・worktree・Codex のレーン
 
-Claude Code は、ユーザーから実装委譲を求められたら、まず task id を作る。
+まず task id と隔離された Git worktree を作る。
 
 ```bash
 TASK_ID="$(date +%Y%m%d-%H%M%S)-codex-task"
 ROOT="$(git rev-parse --show-toplevel)"
 WT="$(dirname "$ROOT")/worktrees/$TASK_ID"
 BRANCH="ai/$TASK_ID"
-```
+CODEX="codex-$TASK_ID"
+# 名前は 1〜32 文字の a-z 0-9 - _。既定 TASK_ID + codex- はちょうど32文字。
+[ "${#CODEX}" -le 32 ] || CODEX="codex-$(printf '%s' "$TASK_ID" | cut -c1-15)"
 
-Codex 用の Git worktree を `git worktree add` で作り、task files を Git から隠す
-（Codex の diff/status 汚染と誤コミットを防ぐ）。
+# 同じ秒の委譲や兄弟リポジトリと名前・場所が衝突しないことを先に確認する。
+test ! -e "$WT" || { printf 'worktree path already exists: %s\n' "$WT" >&2; exit 1; }
+NAME_EXIT=0
+NAME_CHECK="$(hc get "$CODEX" --json 2>&1)" || NAME_EXIT=$?
+if [ "$NAME_EXIT" -ne 3 ]; then
+  printf 'terminal name must be not_found (exit 3): %s\n%s\n' "$CODEX" "$NAME_CHECK" >&2
+  exit 1
+fi
 
-```bash
 git -C "$ROOT" worktree add -b "$BRANCH" "$WT" HEAD
-echo ".ai/" >> "$(git -C "$WT" rev-parse --git-path info/exclude)"
-```
-
-**`herdr worktree create` は使わない。** herdr の worktree グループはリポジトリ単位で、
-親 workspace は「同じリポジトリの workspace のうちサイドバー順で最初のもの」が
-選ばれる（herdr 0.9.3 のソースで確認。0.9.4 は元のチェックアウトの workspace を全部
-並べてから子を描くが、リポジトリ単位なのは同じ）。同じリポジトリの workspace が複数あると、
-Codex レーンが委譲元とは別の workspace の下に表示される。`--workspace` で呼び元を
-指定しても、呼び元が子のようにインデントされるだけで解決しない（2026-10-13 調査。
-herdr #4736 / PR #4772 も parent ID は追加しない方針）。
-
-次に、Codex 用のワークスペースを作り、サイドバーで委譲元（Claude Code が居る）
-workspace の直下へ移す（**疑似ツリー**）。応答 JSON の root pane id を控え、Codex は
-この root pane に直接起動する（§9）。
-
-```bash
-# 呼び元 workspace の特定。herdr の外では pane current がエラーにならず
-# フォーカス中の pane を返す（0.9.3 実測）ので、HERDR_PANE_ID の有無で判定する。
-CALLER_WS=""
-if [ -n "${HERDR_PANE_ID:-}" ]; then
-  CALLER_WS="$(herdr pane current 2>/dev/null | jq -r '.result.pane.workspace_id // empty' || true)"
-fi
-
-# 委譲元が分かるときはラベルの先頭に "└ " を付け、子の行に見せる
-if [ -n "$CALLER_WS" ]; then LANE_LABEL="└ $TASK_ID"; else LANE_LABEL="$TASK_ID"; fi
-CREATED="$(herdr workspace create --cwd "$WT" --label "$LANE_LABEL" --no-focus)"
-
-# エラー JSON（protocol_mismatch 等は exit 0 で返る）で "null" を拾わないよう // empty を付ける
-LANE_WS="$(printf '%s' "$CREATED" | jq -r '.result.workspace.workspace_id // empty')"
-PANE_ID="$(printf '%s' "$CREATED" | jq -r '.result.root_pane.pane_id // empty')"
-test -n "$PANE_ID" || { printf 'lane create failed: %s\n' "$CREATED" >&2; false; }
-
-# 委譲元の直下へ移す（サイドバーの描画順で、委譲元のかたまりと既存のレーンの後ろ）。
-# 並べ替えは CLI に無いので、同梱の place-lane.sh が socket API の workspace.move_block を送る。
-# 失敗しても exit 0 で警告を出すだけ（レーンが一番下に残る）。CLAUDE_PLUGIN_ROOT が
-# 未設定の文脈では、この workflow.md と同じディレクトリの place-lane.sh を実行する
-if [ -n "$CALLER_WS" ]; then
-  "${CLAUDE_PLUGIN_ROOT}"/skills/delegating-to-codex/place-lane.sh "$CALLER_WS" "$LANE_WS"
-fi
-```
-
-以後、Codex に読ませる task files は `$WT/.ai/tasks/$TASK_ID/` に作る。委譲元とレーンの
-対応も記録しておく（サイドバーの並び順は後から変わり得るので、並びだけに頼らない）。
-
-```bash
+EX="$(git -C "$WT" rev-parse --git-path info/exclude)"
+grep -qxF '.ai/' "$EX" || echo '.ai/' >> "$EX"
 TASK_DIR="$WT/.ai/tasks/$TASK_ID"
 mkdir -p "$TASK_DIR/logs"
-CALLER_LABEL=""
-if [ -n "$CALLER_WS" ]; then
-  CALLER_LABEL="$(herdr workspace get "$CALLER_WS" 2>/dev/null | jq -r '.result.workspace.label // empty' || true)"
+
+CALLER_TERMINAL="${HC_TERMINAL_ID:-}"
+if [ -n "$CALLER_TERMINAL" ]; then
+  MODE=child                # Claude の子。ここではまだ起動しない（§9）
+elif herdr-app status >/dev/null 2>&1; then
+  MODE=space                # §9 でタスク用 space の最初のタブに起動する
+else
+  MODE=hidden               # §9 でラベル無し起動。ユーザーには hc attach を案内する
 fi
-jq -n --arg task "$TASK_ID" --arg caller "$CALLER_WS" --arg caller_label "$CALLER_LABEL" \
-  --arg caller_pane "${HERDR_PANE_ID:-}" --arg lane "$LANE_WS" --arg pane "$PANE_ID" \
-  --arg created "$(date '+%Y-%m-%dT%H:%M:%S%z')" \
-  '{task_id: $task, caller_workspace: $caller, caller_label: $caller_label, caller_pane: $caller_pane,
-    lane_workspace: $lane, pane_id: $pane, created_at: $created}' \
+
+jq -n --arg task "$TASK_ID" --arg mode "$MODE" --arg caller "$CALLER_TERMINAL" \
+  --arg codex "$CODEX" --arg created "$(date '+%Y-%m-%dT%H:%M:%S%z')" \
+  '{task_id: $task, mode: $mode, caller_terminal: $caller, codex: $codex, created_at: $created}' \
   > "$TASK_DIR/logs/lane.json"
 ```
 
-- **疑似ツリーにする理由:** どの Claude Code セッションがどの Codex を起動したかを、
-  サイドバーで見えるようにするため。Codex の行が委譲元の行の直下に並び、Codex の状態
-  （working / done など）もその行に出る。本物の tree（worktree グループ）は上記のとおり
-  リポジトリ単位で親が1つなので、Claude ごとに分けられない。2026-10-13 にタブ方式
-  （委譲元 workspace の中のタブ）から切り替えた。タブ方式は対応関係が正しいが、
-  サイドバーに行が出ず見えなかった。
-- **将来:** herdr 本体で「起動元エージェントの下に起動されたエージェントを入れ子で表示」が
-  予定されている（issue #3153 でメンテナーが planned と表明。Discussions #4795・#5210）。
-  また Discussion #1620（Hierarchical space groups）では、`workspace create` に
-  `parent_workspace_id` を渡してリポジトリと無関係に親の下へ並べる API が提案されている。
-  どちらかが入ったら乗り換えを検討する（2026-10-14 時点で 0.9.4 にも master にも無い）。`check-versions.sh` が herdr の更新時に versions.json の
-  `on_newer` で知らせる（§5）。
-- **限界:** 字下げは本物ではない（ラベルの `└` で見せているだけ）ので、折り畳めない。
-  委譲元の行を後からドラッグしたり閉じたりしても、レーンの行は付いてこない（そのとき
-  レーンは上の行の子に見える）。ユーザーが自分で `└ ` から始まるラベルを付けた
-  workspace もレーンとして扱われる。どの Claude が起動したかの正は `logs/lane.json`
-  （委譲元の workspace・ラベル・pane と作成時刻）。
-- **並べ替え（place-lane.sh）:** `workspace.move_block` は指定した workspace だけを
-  `before_workspace_id` の前に移す（公式 Socket API・ソース確認）。ユーザーの他の
-  workspace の並びとフォーカスは変わらない（2026-10-13 実測。委譲元が真ん中・末尾の
-  どちらでも、2本目は1本目の後ろに並んだ）。サイドバーは worktree グループを最初の
-  メンバーの位置にひとかたまりで描くので、移動先はその描画順で決める。委譲元が
-  グループの親・子のときは、レーンはグループのかたまりの直後に並ぶ（グループの中には
-  入れない）。グループになる条件は herdr の版で違う（0.9.3 まで: 同じリポジトリの
-  workspace が2つ以上あり、元のチェックアウトを含む。0.9.4 から: 元のチェックアウトと
-  linked worktree の両方を含む。#4772）。place-lane.sh は PATH の herdr（サイドバーを描く
-  client）の版で切り替え、版が取れなければ 0.9.4 以降の条件にする。socket は herdr が pane に渡す `HERDR_SOCKET_PATH`。`nc -U` は macOS 標準の
-  nc で動く（Linux の netcat-traditional には無いので socat 等に置き換える）。CLI に
-  並べ替えのコマンドが入ったら置き換える（Discussions #5141）。テストは
-  `tests/test-place-lane.sh`。
-- workspace create が失敗した場合（`herdr status` の protocol_mismatch 等）、
-  worktree とブランチは既にできている。原因を直して workspace create から再実行する（新しい
-  TASK_ID でやり直さない。孤児 worktree が増える）。やり直す場合は先に
-  `git -C "$ROOT" worktree remove "$WT" && git -C "$ROOT" branch -D "$BRANCH"` で片付ける。
-- root pane の cwd は worktree checkout そのものなので、そのまま Codex の作業ディレクトリになる（0.9.3 実測）。
-- `HERDR_PANE_ID` があれば `pane current` は caller context で解決される（pane move 後の
-  旧 ID もこの経路なら解決できる）。`pane current` が失敗した場合（stale ID なら
-  `pane_not_found`。0.9.3 実測）は `CALLER_WS` が空になり、`└` の付かない単独 workspace が
-  一番下にできる。`|| true` は `set -euo pipefail` のスクリプトでもここで止まらないため。
-- レーンの workspace は `worktree` が null で、どのグループにも属さない（0.9.3 実測。
-  workspace create は worktree の所属情報を付けない — 所属を付けるのは worktree 系の
-  API だけ。0.9.3・0.9.4 のソース確認）。
-- 作業中のタブを split しないのは、ユーザーの画面を狭め、並列委譲で破綻するため。
-- `--no-focus` なので、ユーザーのフォーカスは動かない（0.9.3 実測）。
+- `child`: `HC_TERMINAL_ID` がある Claude の子として起動する。Herdr のエージェント一覧で Claude の下に出る。
+- `space`: hc の外からなら、アプリが動いている場合にタスク用 space を作る。`space.new --argv` で最初のタブが Codex になる（§9）。
+- `hidden`: アプリが動いていなければラベル無しで起動する。画面には出ないので `hc attach "$CODEX"` を案内する。space を作らないため片付けでも閉じない。
+
+以後の task files は `$TASK_DIR` に作る。どの Claude が起動したかの正は **logs/lane.json**。space モードの `.codex`・`.space`・`.tab` は §9 の応答で更新する。起動に失敗したら既存 worktree とこの記録を使って原因を直す。新しい TASK_ID を作って孤児 worktree を増やさない。
 
 ---
 
@@ -561,7 +285,7 @@ Claude Code は Codex に渡す前に、必ず詳細な `PLAN.md` を作る。
 - 必須テストが通る。
 - CODEX_DONE.md が作られている。
 - 関係ないファイルを変更していない。
-- HERDR_TASK_DONE:<TASK_ID> を出している。
+- CODEX_DONE.md の先頭行が今回の Round: initial / Round: fix-NN である。
 
 ## Risks / edge cases
 - ...
@@ -609,7 +333,10 @@ Run the commands listed in PLAN.md.
 If a command cannot be run, explain why in CODEX_DONE.md.
 
 ## Done condition
-Before stopping, create .ai/tasks/<TASK_ID>/CODEX_DONE.md with:
+- Do not start subagents.
+- Stop every background process or terminal you started before writing CODEX_DONE.md. Write CODEX_DONE.md as your last action.
+
+Before stopping, create .ai/tasks/<TASK_ID>/CODEX_DONE.md with first line `Round: initial` and:
 - Summary
 - Changed files
 - Tests run
@@ -617,252 +344,126 @@ Before stopping, create .ai/tasks/<TASK_ID>/CODEX_DONE.md with:
 - Known risks
 - Any remaining follow-ups
 
-When complete, print exactly this as your final message, on its own with nothing else in that message:
-HERDR_TASK_DONE:<TASK_ID>
-
-If blocked, print exactly this as your final message, on its own:
-HERDR_TASK_BLOCKED:<TASK_ID>
 ```
 
 ---
 
-## 9. Codex agent の起動
+## 9. Codex の起動
 
-Claude Code は、§6 で控えた **Codex 用 workspace の root pane** に Codex を起動する。
-0.7.5+ の `agent start` は既存 pane への起動が必須で（`--kind` と `--pane` が必須、
-`--cwd` / `--no-focus` / pane 自動生成は廃止）、cwd は pane から引き継がれる。
+§6 のモードで起動し、応答を保存する。起動に失敗したらエラーを読んで止める。失敗したまま送信へ進まない。
 
 ```bash
-AGENT="codex-$TASK_ID"
-# agent 名は「小文字始まり・小文字/数字/-/_ のみ・1〜32文字」（invalid_agent_name。
-# 0.9.0 実測）。§6 の既定 TASK_ID（YYYYMMDD-HHMMSS-codex-task）なら "codex-" 込みで
-# ちょうど 32 文字。TASK_ID に長い suffix を付けた場合は短縮する。
-[ "${#AGENT}" -le 32 ] || AGENT="codex-$(printf '%s' "$TASK_ID" | cut -c1-15)"
-
-# --no-daemon: 共有のバックグラウンドサーバー（デーモン）を使わずに動かす。herdr 0.9.4 の
-# Codex integration（v9）は、このときだけ hook でターンの開始・終了を報告する（#4756）。
-# 共有デーモンだと hook の報告が別の pane に届くことがある（公式 Integrations）。
-# 起動中にダイアログ（アップデート・trust）が出ると herdr は blocked と判定し、agent start は
-# agent_not_ready（exit 1 の JSON エラー）で返る。起動の失敗ではないので止まらずに
-# 下の起動確認へ進む（agent 名はそのまま使える。0.9.4 実測）
-herdr agent start "$AGENT" --kind codex --pane "$PANE_ID" -- --no-daemon \
-  > "$TASK_DIR/logs/agent-start.json" 2>&1 || true
-jq -r '.result.agent.agent_status // .error.code // .' "$TASK_DIR/logs/agent-start.json"
+case "$MODE" in
+  child)
+    hc run --bg --name "$CODEX" --cwd "$WT" --outlive-parent --no-notify codex --no-daemon \
+      > "$TASK_DIR/logs/run.json" || { cat "$TASK_DIR/logs/run.json"; false; }
+    ;;
+  space)
+    herdr-app do space.new --name "codex $TASK_ID" --folder "$WT" --tab codex \
+      --argv '["codex","--no-daemon"]' > "$TASK_DIR/logs/run.json"
+    CODEX="$(jq -r '.terminal // empty' "$TASK_DIR/logs/run.json")"
+    SPACE="$(jq -r '.space // empty' "$TASK_DIR/logs/run.json")"
+    TAB="$(jq -r '.tab // empty' "$TASK_DIR/logs/run.json")"
+    test -n "$CODEX" && test -n "$SPACE" && test -n "$TAB"
+    # 名前は付けられないので .terminal のアドレスを以後のターゲットにする。
+    jq --arg codex "$CODEX" --arg space "$SPACE" --arg tab "$TAB" \
+      '.codex = $codex | .space = $space | .tab = $tab' "$TASK_DIR/logs/lane.json" \
+      > "$TASK_DIR/logs/lane.tmp.json" && mv "$TASK_DIR/logs/lane.tmp.json" "$TASK_DIR/logs/lane.json"
+    ;;
+  hidden)
+    hc run --bg --name "$CODEX" --cwd "$WT" --no-notify codex --no-daemon \
+      > "$TASK_DIR/logs/run.json"
+    printf 'Codex の画面: hc attach "%s"\n' "$CODEX"
+    ;;
+esac
 ```
 
-応答は `.result.agent` に agent 情報を含む JSON（`pane_id` / `agent_status` /
-`interactive_ready` 等）。`agent start` は **Herdr が同一 pane に期待どおりの
-agent を検出し対話入力可能と判断してから返る**（公式仕様。既定 30 秒タイムアウト。
-実測 ~3 秒）。追加の引数（モデル指定等）は `--no-daemon` の後ろに足す
-（例: `-- --no-daemon -m gpt-5.4`）。
+`--no-daemon` は必須。付けないと Codex のコマンドが hc の外で動く。`--outlive-parent` は Claude を閉じたり再開したりしても作業中の Codex が巻き添えで終わらないため。付けても `parent` は残り、Herdr では Claude の `sub_agents` に出る（2026-10-30 実機確認済み）。`--no-notify` は親の入力欄への通知を避けるため。Codex にも `hc send` で Claude へ報告させず、報告はファイルに書かせる（入力途中に文字が混ざったり、次のユーザー入力として割り込むため）。
 
-hook による状態報告は、ユーザーが Codex で herdr の hooks を trust しているときだけ動く
-（していないと下の 5 のレビュー画面が出る）。動いていなくても、0.9.4 は画面（タイトルの
-spinner）から working / idle を判定するので、手順は変わらない（2026-10-15 実測: hooks を
-trust せずに一巡し、`prompt --wait` は2分40秒後に done で返った。`herdr agent explain` の
-rule は `osc_title_idle`）。
+space モードでは `space.new --argv` が Codex を起動するので、続けて `hc run` しない。`zsh -ic` 経由で PATH が通ることを **2026-10-30 E2E で確認**した。Codex の終了後は `exec zsh -i` でシェルが残るため `.foreground.name` も見る（§18.6）。
 
-**起動確認（必ず行う）。** start が返っても、Codex が**ダイアログを表示したまま
-`idle` で止まっている**ことがあるため、visible read で画面を見てから送信する。
-0.8.0〜0.9.1 ではどのダイアログも status は `idle` のままで `blocked` にならず、
-状態待ちでは検出できなかった。0.9.3（検出 manifest 2026.10.11.1）では trust と
-アップデートのダイアログは `blocked` と判定されるようになった（2026-10-13 実測。
-`herdr agent explain` で判定ルールが見える）。0.9.4 も同じで、起動中に blocked になると
-`agent start` は `agent_not_ready` で返る。hooks のレビュー画面は 0.9.4 でも `done` の
-ままで blocked にならない（2026-10-15 実測）。どちらにしても状態だけに頼らず、
-visible read で画面を見て判断する。
-
-1. self-update 即終了（§5）→ `agent get` が `agent_not_found` → 再 start。
-2. **対話式アップデートダイアログ**（§5）→ そのまま送信すると Enter が
-   「Update now」を選んでしまう。`pane send-text "$PANE_ID" "2"` +
-   `agent send-keys "$AGENT" enter` で Skip。
-3. fresh worktree での **trust 確認ダイアログ**（"Do you trust the contents of
-   this directory?"）→ enter で承認（"Yes, continue" が既定選択）。親リポジトリ
-   が trust 済みだと出ないこともある（実測）。
-   codex-cli 0.156 で trust プロンプトの文言・判定タイミングが変わった（#44732 /
-   #44746 / #44755）。2026-09-24 の E2E（permissions: YOLO mode）では trust も
-   アップデートダイアログも出ずに「›」が表示された。文言が変わっても「visible read
-   で画面を見てから送る」原則は同じ。codex-cli 0.160 で trust されていないリポジトリを
-   開いたときは "Trust and continue / Quit" という文言で出て、herdr 0.9.3 の状態は
-   `blocked` ではなく `done` だった（2026-10-13 実測）。
-4. **共有デーモンの設定不一致ダイアログ**（`--no-daemon` で起動すれば出ない。2026-10-15 実測。
-   付けずに起動したときは codex-cli 0.160 で実測: "Background server
-   has incompatible feature settings"、選択肢 "1. Run without daemon this time /
-   2. Restart with these settings / 3. Cancel"、既定は Cancel）→
-   `pane send-text "$PANE_ID" "1"` で「今回はデーモンなしで実行」を選ぶ。2 は共有の
-   バックグラウンドサーバーを再起動し、他の Codex セッションの作業を中断し得るので
-   選ばない。
-5. **hooks のレビュー画面**（codex-cli 0.160 実測: "Hooks … N hooks need review
-   before they can run"。0.160 では "Hooks need review / N hooks are new or changed" と
-   "1. Review hooks / 2. Trust all and continue / 3. Continue without trusting" の形でも出る。
-   対象は herdr の hook（v9 は開始・入力・停止・中断の4つ）と、ユーザーが入れた他のツールの
-   hook）→ `agent send-keys "$AGENT" esc` で閉じる（新しい形の画面では "3" を送ってもよい。2026-10-15 実測）。
-   trust の判断はユーザーの Codex 設定に保存されるので、Claude Code は `t` や
-   "2. Trust all and continue"（trust all）を押さない。
-   **この画面は起動確認の後に遅れて出ることがあり、出ている間に送った `/goal` は
-   飲み込まれる。そのとき `agent prompt --wait` は `done` で返る**（偽の完了）。
-   marker が見つからなければ visible read で画面を確認し、閉じてから送り直す。
-   esc で閉じたレーンでは、レビューされていない hooks が動かない。閉じたことと
-   その影響（このレーンではユーザーの hooks が動かない）を REVIEW-N.md と人間への
-   報告に書く。恒久的に有効にしたい場合は、人間が Codex を直接起動して一度レビューする。
-
-アップデートダイアログは codex-cli 0.160 では `pane send-text "$PANE_ID" "2"` だけで
-Skip され、Enter は不要だった（2026-10-13 実測）。送った後は visible read で入力欄
-「›」が出ていることを確かめる。
+**起動確認（必須）:**
 
 ```bash
-# 生存確認（self-update 終了なら agent_not_found が返る → 再 start）
-herdr agent get "$AGENT" | tee "$TASK_DIR/logs/agent-get.json"
-
-# 画面確認（ダイアログの有無と入力プロンプト「›」の表示を見る）
-herdr agent read "$AGENT" --source visible --lines 40
-
-# ダイアログ承認が必要な場合のみ（agent 名ターゲットの send-keys は 0.8.0+）
-herdr agent send-keys "$AGENT" enter
+hc get "$CODEX" --json | tee "$TASK_DIR/logs/get.json"
+hc read "$CODEX"
 ```
 
-なお旧版（0.7.5）にあった「TUI 初期化中のプロンプトが無音で消える」罠は 0.8.0 で
-修正済み — 送信が届かない状況では `agent prompt` が `agent_prompt_stalled`
-エラーで教えてくれる（§2.3）。
+1. `.state: finished`、または本画面を確認した後に `.foreground.name` が codex でなくなった → `exit_code`・foreground と画面を読み、§18.6。
+2. アップデート確認 → `hc keys "$CODEX" 2` だけで Skip。**Enter は不要（2026-10-30 E2E で確認）**。送った後に画面を読む。Skip してもアップデート確認は起動のたびに出る（2026-10-30 E2E）。
+3. フォルダの trust 確認（`Folder access` / `Trust this folder?`）→ `1. Trust and continue / 2. Quit`、フッター `enter continue · esc quit` を確認し、`hc keys "$CODEX" enter`。**esc は Quit なので押さない。hooks 画面の esc と取り違えない。** worktree の中でも trust は repo の root（main checkout）に保存されるので、2回目からは出ない（2026-10-30 E2E で確認）。
+4. hooks のレビュー画面 → `hc keys "$CODEX" esc`。trust all の `t` は押さない。閉じたことと、このターミナルで未承認の hooks が動かない影響を `REVIEW-N.md` と人への報告に書く。恒久的に有効にする判断は人が行う。`Running hook` / `hook timed out after 10s` によりターン開始が遅れることがある（2026-10-30 E2E）。
 
-補足:
+起動ダイアログの間は `status: null` が正常で、本画面では `idle` になる（2026-10-30 E2E で確認）。§18.4 は goal を送った後も報告が無い場合の話であり、起動中の null だけで異常としない。
 
-- 0.7.4 まで必要だった「pane move --new-tab --workspace による自 workspace への
-  回収」は不要。§6 で委譲元の直下に置いた workspace（1レーン = workspace 1 つ。
-  疑似ツリー）がそのまま Codex の置き場所になる。Codex の状態はその行に出て、
-  Agents パネルにも Codex agent が個別に表示される。
-- ID は `w1`（workspace）/ `w1:t1`（tab）/ `w1:p1`（pane）形式の opaque handle
-  （0.8.0 公式）。閉じた tab/pane の ID は再利用されない。**別 workspace へ move
-  した pane は新しい workspace 修飾 ID を受け取る** — 旧 ID は移動したプロセスの
-  caller context 経由でしか解決されないので、一般のターゲットに使わない。移動後は
-  `pane move` の応答 `.result.move_result.pane.pane_id` か agent 名を正とする。
-- workspace はその中の最後の pane を閉じると自動で消える（0.9.3 実測）ので、cleanup は
-  `herdr pane close` だけでよい（§15）。
-- **Codex 用 pane の幅は保証されない。** herdr はクライアントが1つならすべてのタブを
-  そのサイズに、複数なら表示中のタブを最後に操作したクライアントのサイズに合わせ、
-  クライアントがないと 120×40 を使う（公式 Configuration「Headless terminal size」・
-  Concepts「Client and server」）。2026-10-13 の macmini では Codex 用 pane が約50桁の
-  まま数時間続いた（旧方式の worktree workspace でも同じことが起きていた）。Codex は
-  長い行を pane の幅で自分で折り返すので、marker が2行に割れる（実例:
-  `• HERDR_TASK_DONE:20261013-110845-p1c-ai-hand-` と `  part1`）。marker は §2.3 の
-  「完了の確認」の方法で探す。
+画面の `permissions:` の行（例: `YOLO mode`）を読み、`REVIEW-N.md` と人への報告に残す。YOLO では §19 の禁止事項はプロンプトでしか守られない（2026-10-30 E2E で確認）。
+
+`hc read` は画面全体を出すので、起動確認は `--lines` なしでよい。**入力欄 `›` は読み込み中にも先に出るので、それだけでは送らない。画面に `permissions:` の行が見え、`hc get` の `.status.state` が `idle` になってから §10 へ。** 両方がそろうまで `hc get` / `hc read` で読み直す（2026-10-30 E2E）。起動後に遅れてダイアログが出て goal を飲み込むこともあるため、状態だけに頼らない。`hc_raw send` が blocked で拒否しても `--force` を使わず画面を読み、権限など人の判断が要る質問は §18.1 へ。
 
 ---
 
 ## 10. `/goal` の投入
 
-Claude Code は Codex TUI に、1行の `/goal` だけを送る。0.8.0 の主経路は
-`herdr agent prompt --wait` — 送信と完了待ちを1コマンドで行う（ターゲットは
-agent 名でよい。公式も「For normal agent work, --wait is enough」）。
+次の送信と待ちを **Bash の `run_in_background` で1コマンドとして実行**する。送信だけ済ませて単独の `hc wait` から始めない（前ラウンドの done で即座に返るため）。
 
 ```bash
-GOAL_TEXT="/goal Read .ai/tasks/$TASK_ID/CODEX_GOAL.md and implement it exactly. When complete print HERDR_TASK_DONE:$TASK_ID; if blocked print HERDR_TASK_BLOCKED:$TASK_ID."
-
-# Bash の run_in_background で実行し、完了通知で合流する。
-# --timeout は付けない（activity 観測後は無期限に待ち、Codex が working 以外に
-# なった時点で返る。unknown を含める理由は §2.3）。サーバーのエラーは stderr の JSON。
-herdr agent prompt "$AGENT" "$GOAL_TEXT" --wait \
-  --until idle --until done --until blocked --until unknown \
-  > "$TASK_DIR/logs/prompt-wait-result.json" 2>&1
-jq -r '.result.agent.agent_status // .error.code // .' "$TASK_DIR/logs/prompt-wait-result.json"
+hc_raw() { env -u HC_TERMINAL_ID -u HC_SCOPE hc "$@"; }   # §2.1。Bash の呼び出しごとに定義し直す
+GOAL_TEXT="/goal Read .ai/tasks/$TASK_ID/CODEX_GOAL.md and implement it exactly. Write CODEX_DONE.md when complete, or BLOCKED.md if blocked."
+SENT="$TASK_DIR/logs/goal-initial.sent"
+touch "$SENT"
+hc_raw send --wait --timeout 300 "$CODEX" "$GOAL_TEXT" > "$TASK_DIR/logs/send-wait.json" 2>&1
+# 送信が始めたターンの終了、または5分のチェックインで返る。
+# working かつ今回の報告がまだ新しくない間だけ待つ（sleep は使わない）。
+while [ "$(hc get "$CODEX" --json 2>/dev/null | jq -r '.status.state // empty')" = working ] \
+  && ! [ "$TASK_DIR/CODEX_DONE.md" -nt "$SENT" ]; do
+  hc wait "$CODEX" --timeout 300 > "$TASK_DIR/logs/wait-last.json" 2>&1
+done
+hc get "$CODEX" --json | jq -c '{state, status, foreground: .foreground.name}'
+jq -c '.wait | {reason, status}' "$TASK_DIR/logs/send-wait.json"
 ```
 
-- 返ったら §2.3 の「完了の確認」を行う（実測: 送信 → working 遷移 → 完了で `done`）。
-  状態が working のときは、作業中に一瞬 unknown になって早く返っただけなので、
-  `herdr agent wait "$AGENT" --until idle --until done --until blocked --until unknown`
-  をバックグラウンドで待ち直す。
-- **待ちの抜け条件は状態だけにする。** marker や CODEX_DONE.md が現れるまで回るループを
-  自作しない。marker は Codex の折り返しで割れることがあり、見つからないとループが
-  終わらず完了に気付けない（§2.3。2026-10-13 macmini で約4時間の見落とし）。
-- **`agent_prompt_stalled` エラー**（送信後5秒以内に working|blocked なし）が返ったら、
-  visible read で画面を確認する — ダイアログ表示中（§9）が典型。未送達とは限らない
-  ので、composer に goal が残っていれば Enter だけ、既に working なら再送せず
-  上の `agent wait` で合流する（§2.3）。
-- `--timeout` を付けた場合（フォアグラウンドで短く様子を見るとき等）、timeout エラーで
-  返っても Codex は動き続けている。working なら上の `agent wait` で待ち直す
-  （0.9.0: `--timeout` は送信時間込み。送信直後に切れた timeout も未送達の証明ではない）。
-- 送信だけ先に済ませて待ちを単独の `agent wait` で始めない（前ラウンドの done で即座に
-  返る。§2.3）。Claude 側で並行作業をしたいときも、上のコマンドをバックグラウンドで
-  動かせば足りる。
+**`.wait.reason` が `not_started` なら**、`hc read "$CODEX"` で `Pursuing goal` / `Working (` / `Running hook` を確認する。見えたら §11 のループを回して合流する。見えなければ **送り直さず** §18.2 で画面と goal の状態を判断する。hook によりターン開始が送信の数秒後（実測6秒）になることがある（2026-10-30 E2E）。
 
-完了後に直近出力を保存する（`agent read` は plain text。jq を通さない）。
+バックグラウンドで送信を始めたら、別の Bash 呼び出しで `hc read "$CODEX"` を読み、入力行に `<hc from=` が無いことと **`Goal active` が出たこと**を確かめる。タグが見えたら slash command として効いていない。盲目的に再送せず、画面と goal の状態を確認する（2026-10-30 E2E で確認）。
 
-```bash
-herdr agent read "$AGENT" \
-  --source recent-unwrapped \
-  --lines 500 \
-  | tee "$TASK_DIR/logs/codex-after-goal.txt"
-```
+- `send --wait` の JSON は、上位の `.status` が送信時の状態で、待ちの結果は **`.wait.reason` / `.wait.status` / `.wait.turn`**。判定には `.wait.*` を使う。`logs/send-wait.json` と §2.3 の現在の状態・成果物を照合する（2026-10-30 E2E で確認）。
+- `reason: timeout` は5分のチェックイン。`hc_raw` では Claude の入力欄への入力による `reason: message` は期待できない。返ったときに working でも今回の報告が新しければループを抜け、§18.7 で画面を確認する。
+- `not_started` は届いていない証明ではない。**送り直さず画面を読む。** 入力欄に goal が残っている場合は必要なら Enter だけ送り、既に作業中なら待ち直す。
+- blocked による拒否は `--force` で飛ばさず §9 のダイアログを処理する。権限の判断なら人に聞く。
+- `hc get` のエラーや接続失敗、goal 送信後の null status でループを抜けても完了とみなさない（§18.4）。新しい CODEX_DONE.md だけで完了を承認せず、Round と画面を確認する。
+- 2026-10-30 E2E で自動継続ターンの境目は起きたが、background terminals が残っている間は done / idle を出さなかった。ループは今回の CODEX_DONE.md の新しさで抜けるので、どちらでも動く。background terminals が無いときの境目で一度 done になった場合は、ループを抜けて §2.3 → §18.2 で画面を読む（この経路は未確認）。
 
 ---
 
 ## 11. Codex の進捗監視
 
-Claude Code は、Codex の進捗を Herdr の状態・成果物ファイル・marker で確認する（§2.3）。
-
-基本コマンド:
-
 ```bash
-# Codex の直近出力を見る（plain text。jq 不要）
-herdr agent read "$AGENT" --source recent-unwrapped --lines 200
-
-# Herdr の semantic state を待つ（working のときだけ。既に一致していると即座に返る）
-# unknown も含める（§2.3）。返ってきた JSON の .result.agent.agent_status で分岐する
-herdr agent wait "$AGENT" --until idle --until done --until blocked --until unknown
-
-# 特定状態だけを待つ場合は --until（繰り返し指定可）
-herdr agent wait "$AGENT" --until blocked --timeout 1000 || true
-
-# 明示 marker を探す（空白・改行を除いてから行頭の "•" 付きで。idle / done 以外では
-# --source visible にする。§2.3 の「完了の確認」の 3 をそのまま使う）
-herdr agent read "$AGENT" --source recent-unwrapped --lines 500 \
-  | LC_ALL=C tr -d '[:space:]' \
-  | grep -oE "•HERDR_TASK_(DONE|BLOCKED):$TASK_ID(:fix-[0-9]{2})?" | tail -1
+hc read "$CODEX" --lines 200
+hc get "$CODEX" --json | jq -c '{state, status, foreground: .foreground.name}'
+# まだ作業中なら、報告ファイルの有無では抜けずに待つ（§18.7 からも使う）。
+# 次のループを run_in_background で実行する。
+while [ "$(hc get "$CODEX" --json 2>/dev/null | jq -r '.status.state // empty')" = working ]; do
+  hc wait "$CODEX" --timeout 300 > "$TASK_DIR/logs/wait-last.json" 2>&1
+done
+hc get "$CODEX" --json | jq -c '{state, status, foreground: .foreground.name}'
 ```
 
-運用ルール:
-
-```text
-working 以外 + CODEX_DONE.md があれば（修正ラウンドでは FIX を送った後に更新されていれば）、レビューに進む（marker も見つかれば記録する）。
-blocked を検出したら、BLOCKED.md と pane output を読み、必要な入力を与える。
-unknown が続く場合は、herdr agent explain を使うか、pane output を保存して人間に状態を報告する。
-marker がないが CODEX_DONE.md と diff が妥当なら、レビューに進んでよい。ただし REVIEW.md に marker missing と書く。
-marker がエコー行（• Goal active Objective: ...）でしか見つからない場合は、marker 未達として扱う（§2.3 の探し方ならエコー行は拾わない）。
-CODEX_DONE.md がない場合は、実装完了とみなさず、FIX-N.md で作成を求める（ただし diff も無いなら先に §18.2 の確認を行う）。
-```
+`hc read --lines N` は画面全体 + その上の履歴N行であり、「直近N行」ではない。Codex の TUI では履歴がほとんど取れないため、画面の記録として読む（2026-10-30 E2E で確認）。状態と task files を照合する（§2.3）。working のまま今回の新しい報告があれば §18.7、まだ作業中なら上の報告ファイル条件なしのループで待つ。done / idle は今回の Round の `CODEX_DONE.md` を確認してレビューへ。blocked は `BLOCKED.md` と画面を読む。成果物が無い場合や状態報告が無い場合は §18 へ。sleep でポーリングしない。
 
 ---
 
 ## 12. Codex 完了後の保存
 
-§2.3 の「完了の確認」で Codex の goal が止まったと分かったら、Claude Code はレビュー前に必ずログと差分を保存する。
+§2.3 で今回の goal が止まったことを確認したら、レビュー前に画面の記録と差分を保存する。`hc read --lines 500` は画面全体 + その上の履歴500行だが、Codex の TUI では履歴がほとんど取れず、全経過のログにはならない（2026-10-30 E2E で確認）。経過の正は `PROGRESS.md` / `CODEX_DONE.md` である。Codex の session ログは `~/.codex/sessions/` にある。
 
 ```bash
 STAMP="$(date +%Y%m%d-%H%M%S)"
-
-herdr agent read "$AGENT" \
-  --source recent-unwrapped \
-  --lines 500 \
-  > "$TASK_DIR/logs/codex-pane-$STAMP.txt"
-
-git -C "$WT" status --short \
-  > "$TASK_DIR/logs/status-$STAMP.txt"
-
-git -C "$WT" diff \
-  > "$TASK_DIR/logs/diff-$STAMP.patch"
+hc read "$CODEX" --lines 500 > "$TASK_DIR/logs/codex-$STAMP.txt"
+git -C "$WT" status --short > "$TASK_DIR/logs/status-$STAMP.txt"
+git -C "$WT" diff > "$TASK_DIR/logs/diff-$STAMP.patch"
 ```
 
-Claude Code は次を読む。
-
-```text
-.ai/tasks/<TASK_ID>/PLAN.md
-.ai/tasks/<TASK_ID>/CODEX_GOAL.md
-.ai/tasks/<TASK_ID>/PROGRESS.md
-.ai/tasks/<TASK_ID>/CODEX_DONE.md
-git diff
-git status --short
-テスト結果
-```
+Claude Code は `PLAN.md`・`CODEX_GOAL.md`・`PROGRESS.md`・`CODEX_DONE.md`・git diff・git status・テスト結果を読む。画面出力だけを正としない。
 
 ---
 
@@ -882,6 +483,7 @@ Claude Code は、Codex の実装完了後に `REVIEW-N.md` を作る。
 7. セキュリティ・secret・destructive operation の問題がないか
 8. 不要なリファクタや unrelated change がないか
 9. CODEX_DONE.md の内容と実際の diff が一致しているか
+10. CODEX_DONE.md の background process / terminal の申告を画面で確かめたか（§18.7 の必須確認）
 ```
 
 `REVIEW-N.md` のテンプレート:
@@ -916,30 +518,53 @@ Claude Code は、承認できるまでは `APPROVED` を書かない。
 
 ### 13.1 レビューの可視化（任意・hunk 併用）
 
-hunk CLI が導入済みの環境（`which hunk` で確認）では、Claude Code はレビュー時に**人間向けの diff ビューを開き、REVIEW-N.md の指摘をインライン注釈**できる。hunk の TUI は人間用であり、Claude 自身の diff 読解は従来どおり `git diff` で行う。なお herdr-plugin-hunk（UI のコマンドパレットから diff を開く herdr プラグイン）はこの手順には不要 — 人間が手動で diff を開くための任意追加であり、その action は CLI から呼べない（実測）。
+hunk CLI がある場合（`which hunk`）、人間向けの diff を新しいタブで見せ、REVIEW-N.md の指摘を注釈にできる。Claude 自身は `git diff` を読む。hidden モードではタブを作らず、この可視化を省く。
+
+child モードでは `herdr-app ls` で `logs/lane.json` の `caller_terminal` を含む space を次の式で探す（2026-10-30 E2E で確認）。フォーカス中の space を推測で使わない。space モードでは記録した `.space` を使う。アプリが無い、または委譲元が見つからない場合も可視化だけを省く。
 
 ```bash
-# Codex worktree の未コミット差分を人間用に表示。
-# agent start は --kind（既知エージェント種別）必須のため、hunk のような
-# 任意 TUI は agent start では起動できない。Codex 用 workspace の root pane を
-# split して pane run で起動する。
-HUNK_PANE="$(herdr pane split "$PANE_ID" --direction right --cwd "$WT" --no-focus \
-  | jq -r '.result.pane.pane_id')"
-herdr pane run "$HUNK_PANE" "hunk diff"
+REVIEW_SPACE=""
+if [ "$MODE" = child ]; then
+  REVIEW_SPACE="$(herdr-app ls | jq -r --arg t "$CALLER_TERMINAL" '.spaces[] | select(any(.tabs[].terminals[]; .terminal == $t)) | .id')"
+elif [ "$MODE" = space ]; then
+  REVIEW_SPACE="$(jq -r '.space // empty' "$TASK_DIR/logs/lane.json")"
+fi
+# hidden または委譲元が見つからない場合はタブを作らない。
+if [ -n "$REVIEW_SPACE" ]; then
+  herdr-app do tab.new --space "$REVIEW_SPACE" --name "review $TASK_ID" \
+    --folder "$WT" --argv '["hunk","diff"]' > "$TASK_DIR/logs/review-tab.json"
+  HUNK_TAB="$(jq -r '.tab // empty' "$TASK_DIR/logs/review-tab.json")"
+  test -n "$HUNK_TAB"
+  hc read "$(jq -r .terminal "$TASK_DIR/logs/review-tab.json")"
+fi
+```
 
+`tab.new` の直後は hunk がまだ daemon に登録されていないことがある。タブを開いた場合は、上の `hc read` で **`working tree` を含む hunk のヘッダが出たことを確かめてから**、次の session CLI を使う。`No active Hunk sessions` で失敗したら、同じターミナルを `hc read "$(jq -r .terminal "$TASK_DIR/logs/review-tab.json")"` で読み直し、ヘッダを確かめ直して **失敗した session CLI を1回だけ再実行**する。再び失敗したら原因を確認し、繰り返さない（2026-10-30 E2E）。
+
+```bash
 # Claude は session CLI で構造把握と注釈を行う（TUI は操作しない）
 hunk session review --repo "$WT" --json
 printf '%s\n' '{"comments":[{"filePath":"src/x.ts","newLine":12,"summary":"REVIEW-01 #1: ..."}]}' \
   | hunk session comment apply --repo "$WT" --stdin
 ```
 
-指摘の summary には `REVIEW-N.md` の項番を含め、対応関係を保つこと。session CLI の全コマンド（navigate / reload / comment 等）は `hunk skill path` で表示される同梱スキルが正本。**REVIEW-N.md が正本であることは変わらない** — hunk 注釈は人間が diff 上で指摘を追うための補助であり、レビュー記録の代替ではない。レビュー完了後（APPROVED / ABORTED）は hunk pane も `herdr pane close` で片付ける（split で増やした pane を閉じても Codex の root pane には影響しない。逆に hunk pane を閉じ忘れると、Codex pane を閉じても Codex 用 workspace が残る。§15）。
+指摘の summary には `REVIEW-N.md` の項番を含める。session CLI の全コマンド（navigate / reload / comment 等）は `hunk skill path` の同梱スキルが正本。**REVIEW-N.md が正本**であり、注釈は補助である。
+
+レビュー完了後（APPROVED / ABORTED）は、作ったタブを閉じ、そのターミナルも消す（§15）。`tab.close` の直後はまだ live のことがあり、すぐ `hc rm` すると `kind: live` で失敗する。自分で作ったターミナルだけを `hc kill` → `hc rm` する（2026-10-30 E2E で確認）。タブを開いた場合だけ次を実行する。
+
+```bash
+herdr-app do tab.close --id "$HUNK_TAB" --confirmed true
+HT="$(jq -r .terminal "$TASK_DIR/logs/review-tab.json")"
+hc kill "$HT"
+hc rm "$HT"
+HUNK_TAB=""
+```
 
 ---
 
 ## 14. 修正ループ
 
-Claude Code が `CHANGES_REQUESTED` と判断した場合、同じ Codex pane を使い、`FIX-N.md` を作って再度 `/goal` を送る。
+Claude Code が `CHANGES_REQUESTED` と判断した場合、同じ Codex のターミナルを使い、`FIX-N.md` を作って再度 `/goal` を送る。
 
 ### 14.1 `FIX-N.md` テンプレート
 
@@ -975,36 +600,49 @@ Review result: CHANGES_REQUESTED
 
 ## Done condition
 - All Must fix items are addressed.
-- CODEX_DONE.md is updated.
-- Print exactly HERDR_TASK_DONE:<TASK_ID>:fix-<N> as your final message, on its own with nothing else in that message.
+- Update .ai/tasks/<TASK_ID>/PROGRESS.md with this round's checkpoints.
+- Do not start subagents.
+- Stop every background process or terminal you started before writing CODEX_DONE.md. Write CODEX_DONE.md as your last action.
+- CODEX_DONE.md is updated, with first line `Round: fix-<N>`.
 ```
 
 ### 14.2 修正 goal の投入
 
-方向転換する前に、必要なら既存 goal を clear する。
+修正の goal の前には、**必ず**タグ無しで既存 goal を clear する。送った後に画面を読み、入力行に `<hc from=` が無いことと `Goal cleared`（既存 goal が消えたこと）を確かめる。消えていなければ修正 goal を送らない（2026-10-30 E2E で確認）。
 
 ```bash
-herdr agent prompt "$AGENT" "/goal clear"
+hc_raw() { env -u HC_TERMINAL_ID -u HC_SCOPE hc "$@"; }   # §2.1。Bash の呼び出しごとに定義し直す
+hc_raw send "$CODEX" "/goal clear"
+hc read "$CODEX"
 ```
 
-修正 goal を送り、完了まで待つ（§10 と同じ `prompt --wait` 型をバックグラウンドで。
-stalled / timeout エラーなら画面確認→送達済みか判断→対処。§2.3）。
+修正も §10 と同じ送信・待ちのループを **Bash の `run_in_background` で1コマンドとして実行**する。`not_started`・blocked・timeout と待ち結果の `.wait.*` は §10 と同じ扱い。`hc_raw` では `reason: message` を期待しない。
 
 ```bash
-FIX_N="01"   # 2桁（marker の照合が fix-[0-9]{2} のため）
-FIX_GOAL="/goal Read .ai/tasks/$TASK_ID/FIX-$FIX_N.md and apply only those fixes. Update CODEX_DONE.md. When complete print HERDR_TASK_DONE:$TASK_ID:fix-$FIX_N."
-
-touch "$TASK_DIR/logs/fix-$FIX_N.sent"   # CODEX_DONE.md が更新されたかの比較用
-herdr agent prompt "$AGENT" "$FIX_GOAL" --wait \
-  --until idle --until done --until blocked --until unknown \
-  > "$TASK_DIR/logs/prompt-wait-fix-$FIX_N.json" 2>&1
-jq -r '.result.agent.agent_status // .error.code // .' "$TASK_DIR/logs/prompt-wait-fix-$FIX_N.json"
+hc_raw() { env -u HC_TERMINAL_ID -u HC_SCOPE hc "$@"; }   # §2.1。Bash の呼び出しごとに定義し直す
+FIX_N="01"   # 2桁
+FIX_GOAL="/goal Read .ai/tasks/$TASK_ID/FIX-$FIX_N.md and apply only those fixes. Update CODEX_DONE.md (first line: Round: fix-$FIX_N)."
+SENT="$TASK_DIR/logs/fix-$FIX_N.sent"
+touch "$SENT"
+hc_raw send --wait --timeout 300 "$CODEX" "$FIX_GOAL" > "$TASK_DIR/logs/send-wait-fix-$FIX_N.json" 2>&1
+while [ "$(hc get "$CODEX" --json 2>/dev/null | jq -r '.status.state // empty')" = working ] \
+  && ! [ "$TASK_DIR/CODEX_DONE.md" -nt "$SENT" ]; do
+  hc wait "$CODEX" --timeout 300 > "$TASK_DIR/logs/wait-last.json" 2>&1
+done
+hc get "$CODEX" --json | jq -c '{state, status, foreground: .foreground.name}'
+jq -c '.wait | {reason, status}' "$TASK_DIR/logs/send-wait-fix-$FIX_N.json"
 ```
 
-返ったら §2.3 の「完了の確認」を行う。CODEX_DONE.md が FIX を送った後に更新されて
-いること（`[ "$TASK_DIR/CODEX_DONE.md" -nt "$TASK_DIR/logs/fix-$FIX_N.sent" ]`）、見つかった
-最後の marker が `•HERDR_TASK_DONE:$TASK_ID:fix-$FIX_N` であることを確かめる（前ラウンドの
-marker や CODEX_DONE.md を取り違えないため）。
+**`.wait.reason` が `not_started` なら**、`hc read "$CODEX"` で `Pursuing goal` / `Working (` / `Running hook` を確認し、見えたら §11 のループを回して合流する。見えなければ **送り直さず** §18.2 の判断をする（2026-10-30 E2E）。
+
+修正 goal の送信をバックグラウンドで始めたら、`hc read "$CODEX"` で入力行に `<hc from=` が無いことと `Goal active` が出たことを確かめる。待ちが返ったら §2.3 を確認する。working のまま今回の報告が新しければ §18.7 へ。先頭行が `Round: fix-$FIX_N` であり、FIX 送信後に更新されたことも確認する。
+
+```bash
+[ "$(head -n1 "$TASK_DIR/CODEX_DONE.md")" = "Round: fix-$FIX_N" ]
+[ "$TASK_DIR/CODEX_DONE.md" -nt "$TASK_DIR/logs/fix-$FIX_N.sent" ]
+```
+
+前ラウンドの CODEX_DONE.md を取り違えない。合わなければ §18.3。
 
 ### 14.3 ループ上限
 
@@ -1019,74 +657,67 @@ Claude Code は無限に修正ループを回さない。
 ```text
 1. REVIEW-FINAL.md に ABORTED または BLOCKED を書く
 2. 未解決点を箇条書きにする
-3. 現在の diff / pane log / status を保存する
-4. 同じ pane の文脈が汚れている可能性があれば pane を閉じる
-5. 必要なら新しい Codex pane を起動し、PLAN.md + 最新 REVIEW/FIX + 現在 diff を読ませて再開する
+3. 現在の diff / terminal log / status を保存する
+4. 同じターミナルの文脈が汚れている可能性があれば Codex を止める
+5. 必要なら新しい Codex のターミナルを起動し、PLAN.md + 最新 REVIEW/FIX + 現在 diff を読ませて再開する
 ```
 
 ---
 
-## 15. pane を閉じるタイミング
+## 15. Codex を止めるタイミング
 
-Codex が `HERDR_TASK_DONE` を出した瞬間には pane を閉じない。
-
-pane close の条件:
+Codex が done になった直後には止めない。停止の条件:
 
 ```text
 Claude Code review: APPROVED または ABORTED
 Codex status: done または idle
 未処理の blocked 質問: なし
-CODEX_DONE.md: あり
+CODEX_DONE.md: あり（今回の Round）
 REVIEW-FINAL.md: あり
-final diff / status / pane output: 保存済み
+final diff / status / terminal output: 保存済み
 次の FIX-N.md を投げる予定: なし
 ```
 
-閉じてはいけないタイミング:
-
-```text
-Codex が HERDR_TASK_DONE を出した直後
-Claude Code のレビュー前
-Codex が working
-Codex が blocked
-FIX-N.md を投げる予定がある
-```
-
-pane cleanup:
+レビュー前、working、未処理の blocked、次の FIX がある間は止めない。中止時は、可能なら先に pause を送る。
 
 ```bash
-herdr agent read "$AGENT" \
-  --source recent-unwrapped \
-  --lines 500 \
-  > "$TASK_DIR/logs/codex-final-pane.txt"
-
-git -C "$WT" status --short \
-  > "$TASK_DIR/logs/final-status.txt"
-
-git -C "$WT" diff \
-  > "$TASK_DIR/logs/final.diff"
-
-herdr pane close "$PANE_ID"
+hc_raw() { env -u HC_TERMINAL_ID -u HC_SCOPE hc "$@"; }   # §2.1。Bash の呼び出しごとに定義し直す
+hc_raw send "$CODEX" "/goal pause"
 ```
 
-pane close の結果: Codex 用 workspace の最後の pane なので、workspace ごと閉じて
-サイドバーの `└` の行も消える（0.9.3 実測）。委譲元 workspace には影響しない。
-
-§13.1 で hunk pane を split した場合は、先にそれも閉じる（残っていると workspace が消えない）。
-
-作業を中止する場合は、いきなり閉じずに可能なら Codex に pause を送る。
+画面の記録・差分の保存と `REVIEW-FINAL.md` 作成後に片付ける。`hc read --lines 500` は画面全体 + 上の履歴500行であり、Codex の TUI の全経過は取れない。経過の正は `PROGRESS.md` / `CODEX_DONE.md`（§12）。**`hc kill` は SIGKILL による即時終了**なので、作業中の中止は可能なら先にタグ無しの pause を送る（2026-10-30 E2E で確認）。下の操作は今回起動した Codex と作ったタブ・space だけを対象にする。
 
 ```bash
-herdr agent prompt "$AGENT" "/goal pause"
+hc read "$CODEX" --lines 500 > "$TASK_DIR/logs/codex-final.txt"
+git -C "$WT" status --short > "$TASK_DIR/logs/final-status.txt"
+git -C "$WT" diff > "$TASK_DIR/logs/final.diff"
+
+# §13.1 でまだ片付けていない hunk タブとそのターミナルだけ先に消す。
+if [ -n "${HUNK_TAB:-}" ]; then
+  herdr-app do tab.close --id "$HUNK_TAB" --confirmed true
+  HT="$(jq -r .terminal "$TASK_DIR/logs/review-tab.json")"
+  hc kill "$HT"
+  hc rm "$HT"
+  HUNK_TAB=""
+fi
+hc kill "$CODEX"
+hc rm "$CODEX"
+
+# 最後のターミナルを hc rm すると space も自動で消える（2026-10-30 E2E で確認）。
+# 今回作った space が herdr-app ls にまだある場合だけ閉じる。
+SPACE="$(jq -r '.space // empty' "$TASK_DIR/logs/lane.json")"
+if [ -n "$SPACE" ] && herdr-app ls | jq -e --arg id "$SPACE" 'any(.spaces[]; .id == $id)' >/dev/null; then
+  herdr-app do space.close --id "$SPACE" --confirmed true
+fi
 ```
 
-その後にログ保存、`REVIEW-FINAL.md` 作成、pane close を行う。
+child モードでは委譲元の space を閉じない。hidden モードでは space を作っていないので `space.close` を呼ばない。checkout はまだ残し、取り込みは §16、worktree の削除は §17 で行う。
 
 ---
 
 ## 16. 承認後の取り込み（commit → merge / PR）
 
-`REVIEW-FINAL.md` に APPROVED を書いて pane を閉じたら、Claude Code が成果を取り込み可能な状態にする。レビューは未コミット diff に対して行うため、承認後のコミットが必要になる。
+`REVIEW-FINAL.md` に APPROVED を書いて Codex のターミナルを片付けたら、Claude Code が成果を取り込み可能な状態にする。レビューは未コミット diff に対して行うため、承認後のコミットが必要になる。
 
 ```text
 1. Claude Code が Codex worktree でコミットする
@@ -1138,130 +769,91 @@ yomiyasu は状態フォルダ `.yomiyasu/` を git リポジトリの最上位�
 
 ## 17. worktree cleanup のタイミング
 
-pane close と worktree remove は別物である。
+Codex の停止と worktree remove は別である。**Codex を止めてから worktree remove** を行う。
 
 ```text
-pane close（§15）:
-  Codex のプロセス・画面を閉じる。Claude Code の最終レビュー後に行う。
-  Codex 用 workspace も一緒に消える。checkout は残る。
-
+Codex の停止・片付け（§15）:
+  最終レビュー後に hc kill + hc rm。作った space があれば閉じる。checkout は残す。
 worktree remove:
-  Git worktree checkout を削除する。merge / PR / reject が終わった後だけ行う。
-  必ず pane close の後に行う（Codex が中で動いたままディレクトリを消さない）。
+  merge / reject 後に checkout を消す。PR はマージまたはクローズまで残す。
+  Codex が中で動いたままディレクトリを消さない。
 ```
-
-作業ブランチを採用する前に worktree を消さない。
 
 ```bash
 git -C "$ROOT" worktree remove "$WT"
-git -C "$ROOT" branch -d "$BRANCH"   # merge 済みの場合。reject なら -D
+git -C "$ROOT" branch -d "$BRANCH"   # merge 済み。reject は -D
 ```
 
-- PR を作った場合は、PR がマージされるまで worktree もブランチも消さない。マージ後に
-  上記（`branch -d`）を行う。PR をマージせずにクローズしたら reject と同じく `-D`
-  （PR 作成時に push 済みなので、ローカルを消してもリモートのブランチは残る）。
+- PR 中は worktree もブランチも残す。未マージでクローズしたら reject と同じ扱い。
+- `.ai/` は info/exclude で無視されるが checkout と一緒に消えるため、残したいログは事前に退避する。
+- 未コミット変更で拒否されたときに `worktree remove --force` を使うのは、`logs/final.diff` 保存済みで人間が破棄を選んだ場合だけ。
+- 中止時も §15 のログ保存・停止・片付けを先に行う。
 
-- `.ai/` は info/exclude で無視されているので、残っていても `worktree remove` は
-  `--force` なしで通る（2026-10-13 実測）。ただし checkout ごと消えるので、残したい
-  ログは事前に退避しておく。
-- Git が未コミットの変更を理由に拒否した場合、`git -C "$ROOT" worktree remove --force "$WT"`
-  を使うのは、`logs/final.diff` を保存済みで、かつ人間が破棄を選んだときだけにする。
-- pane を閉じずに中止した場合（§14.3 等）も、先に `herdr pane close "$PANE_ID"` してから
-  上記を行う。
+### 17.1 2.0.0 より前 (herdr TUI) のレーンの片付け
 
-### 17.1 旧方式（2026-10-13 改訂（skill 1.4.0 / plugin 1.5.0）より前）のレーンの片付け
-
-2026-10-13 改訂（skill 1.4.0 / plugin 1.5.0）より前の本手順は `herdr worktree create` でレーンを作っていた。そのとき作られた
-worktree グループの子 workspace（`is_linked_worktree: true`）が残っている場合は、
-次のルールで片付ける。
-
-```text
-workspace がまだ開いている:
-  herdr worktree remove --workspace <id> で checkout と workspace を両方消す
-  （pane 内でプロセスが生きていて拒否される場合のみ --force）。
-workspace は閉じている:
-  git worktree remove + branch -d で消す（herdr worktree remove は workspace_not_found）。
-workspace が開いたまま git 側だけ消した:
-  参照先のないゾンビ workspace が残る → herdr workspace close <id>。
-workspace close --group:
-  primary と linked をまとめて閉じるフラグ。workspace_group_close_required の
-  エラー回避のために付けてはいけない（ユーザーが明示した場合のみ）。
---trust-repository:
-  1リクエスト限りの Git trust。失敗時の再試行フラグではなく、ユーザーが
-  リポジトリを確認済みのときだけ使う。
-herdr worktree create:
-  引数なしでも既定値で worktree を即作成する（0.7.4 実測）。usage 確認目的で叩かない。
-```
-
-ゾンビ workspace の検出と一括掃除:
-
-```bash
-# linked worktree の workspace だけを対象にする。repo root で開いた通常の
-# workspace にも worktree オブジェクトが付く（is_linked_worktree: false）ため、
-# `.worktree != null` では通常 workspace まで対象に含めてしまう。
-# is_linked_worktree == true で絞ること（true 判定なので jq の // は使わない —
-# false // x は x になる）。
-herdr workspace list \
-  | jq -r '.result.workspaces[] | select(.worktree.is_linked_worktree == true) | [.workspace_id, .worktree.checkout_path] | @tsv' \
-  | while IFS=$'\t' read -r ws path; do
-      [ -n "$path" ] && [ ! -d "$path" ] && herdr workspace close "$ws"
-    done
-```
+旧 herdr TUI のレーンが残っていたら、対象を確認して `herdr pane close <pane>` で閉じ、worktree は Git で消す。さらに古い worktree グループの片付けは plugin 1.8.0 の workflow.md §17.1 を Git 履歴から参照する。
 
 ---
 
-## 18. blocked / failed / unknown の扱い
+## 18. blocked / failed / 状態報告なしの扱い
 
 ### 18.1 Codex が blocked
 
-Claude Code は pane を閉じない。
+Codex を閉じず、`hc read "$CODEX" --lines 200` と `BLOCKED.md` を読む。起動ダイアログなら §9。権限など人の判断が要る質問はユーザーに聞く。`hc_raw send --force` で飛ばさない。
 
-```text
-1. herdr agent read で出力を読む
-2. BLOCKED.md があれば読む
-3. 必要な情報を Claude Code が判断できるなら、CLARIFICATION.md または FIX-N.md を作る
-4. Codex に再 /goal または必要な回答を送る
-5. 人間の判断が必要なら REVIEW-FINAL.md に BLOCKED を書いて報告する
-```
-
-codex-cli 0.155+ は、goal の自動継続ターンが3回続けて空（進捗なし）だと goal
-自体を blocked にする（#44320）。この場合 BLOCKED.md が無いこともあるので、
-agent read で「goal blocked」系の表示を確認し、FIX-N.md で具体的な次の一手を
-与えて再 /goal する。
+Claude が判断できる不足情報は `CLARIFICATION.md` または `FIX-N.md` に書き、画面を確認して必要な回答または再 `/goal` を送る。解決できなければ `REVIEW-FINAL.md` に BLOCKED と理由を書く。goal の進捗なしが続いて blocked になった場合も画面で原因を確認し、具体的な次の一手を渡す。
 
 ### 18.2 Codex が done / idle だが CODEX_DONE.md がない
 
-実装完了とみなさない。
+実装完了とみなさず `hc read` で画面を確認する。ダイアログに goal が飲まれたか、goal が自動継続しているかを見分ける。まだ続いていれば送り直さず、working に戻ったら §10 の待ちに合流する。2026-10-30 E2E で自動継続ターンの境目は起きたが、background terminals が残っている間は done / idle を出さなかった。ループは今回の CODEX_DONE.md の新しさで抜けるので、どちらでも動く。background terminals が無いときの境目で一度 done になった場合は、ループを抜けて §2.3 → §18.2 で画面を読む（この経路は未確認）。
 
-ただし diff も CODEX_DONE.md も無く marker も無い done は、goal が Codex の
-ダイアログ（hooks レビュー画面等）に飲み込まれた可能性が高い（§9-5）。まず visible
-read で画面を確認し、ダイアログを閉じてから同じ goal を送り直す。この送り直しは
-修正ループのラウンドに数えない。Codex が goal を実行したのに CODEX_DONE.md が無い
-場合だけ、次を返す。
+送り直すのは **ダイアログを閉じ、元の goal が実行されていないことを確認した後だけ**。この再送は修正ラウンドに数えない。実際に実装を終えたのに報告だけが無い場合は `CHANGES_REQUESTED` とし、CODEX_DONE.md の作成と変更点・テスト・リスクの記録を求める。
 
-```text
-Status: CHANGES_REQUESTED
-Required fix: CODEX_DONE.md を作り、変更点・テスト・リスクを記録すること。
-```
+### 18.3 `Round:` がこのラウンドでない
 
-### 18.3 marker がない
+古い CODEX_DONE.md を今回の完了と取り違えない。先頭行と §14.2 の送信時刻比較を確認する。working なら待ち直し、止まっていれば画面と成果物を読み、今回の報告への更新を求める。Round が違うままレビュー承認しない。
 
-`CODEX_DONE.md` と diff が妥当ならレビューに進んでよい。ただし、`REVIEW-N.md` に `Completion marker was missing` と記録する。
+### 18.4 状態の報告が無い
 
-### 18.4 Herdr status が unknown
+**goal を送った後**も `status: null` なら、Codex が OSC 7501 を出していない状態として確認する。起動ダイアログ中の null は正常（§9）。hc は画面から状態を補完しない。
 
 ```bash
-herdr agent explain "$AGENT" --json || true
-# unknown では履歴の読み取りが agent_not_idle になるので visible を読む（公式 Agent automation）
-herdr agent read "$AGENT" --source visible
-herdr pane get "$PANE_ID"
+hc get "$CODEX" --json
+hc read "$CODEX" --lines 200
 ```
 
-画面出力・diff・task files で判断し、不明なら `BLOCKED` として人間に報告する。
+`--no-daemon` での起動を確認し、画面・diff・task files を読む。未送達とは決めつけず、goal を自動再送しない。接続エラーも完了扱いせず、不明なら BLOCKED として人に報告する。
 
 ### 18.5 Codex が scope を広げた
 
 Claude Code は `CHANGES_REQUESTED` とし、`FIX-N.md` で unrelated change の revert を要求する。
+
+### 18.6 Codex が終わった (`state: finished` または foreground が変わった)
+
+`hc get` の `.state`・`exit_code`・`.foreground.name` と `hc read` の画面を確認する。space モードは `zsh -ic '…; exec zsh -i'` の中で動くので、Codex が自分で終わってもターミナルは live のまま zsh になる。起動確認後に **`.foreground.name` が codex でなくなったら Codex は終了した**とみなす（2026-10-30 E2E で確認）。
+
+自己更新などで起動し直す場合、今回の終了済みターミナルを `hc rm` する。space モードで zsh が live のままなら、そのシェルを `hc kill` してから `hc rm`。space は自動で消える場合があるため、§15 と同じく `herdr-app ls` に今回作った space がまだあるときだけ閉じる。§9 と同じ方法で起動し直し、返った ID を lane.json に更新する。ユーザーの他の space は触らない。新しい TASK_ID / worktree は作らず、ダイアログ確認から再開する。作業がどこまで進んだかをファイルで確認し、既に送達した goal を無条件に再送しない。
+
+### 18.7 ターンが終わったのに working のまま (background terminals)
+
+Codex 0.164 は background terminals が残ると、ターン終了後も OSC 7501 で working を出し続けることがある（2026-10-30 child E2E で初回・修正の両方で確認）。§10 / §14.2 のループを今回の新しい CODEX_DONE.md で抜けたら、`hc read "$CODEX"` の画面を確認する。
+
+**§18.7 の画面確認はレビュー前に必ず行う。** §8 / §14.1 の background terminals を止める指示は残すが、効かないことがある。2026-10-30 E2E では Codex が閉じられず、CODEX_DONE.md に「残っていない」と申告したのに画面には14個出ていた。申告だけで片付け済みと判断せず、状態が done / idle の場合も画面を確認する。
+
+**次の条件をすべて満たした場合だけ**、下の `/stop` を送る。
+
+- CODEX_DONE.md の先頭行の Round が今回と一致し、送信マーカー `$SENT` より新しい。
+- 画面に入力欄 `›` と `background terminal(s) running`（例: `8 background terminals running`）が見える。
+- `Working (` のスピナーが無く、ターンが終わっている。
+
+```bash
+hc_raw() { env -u HC_TERMINAL_ID -u HC_SCOPE hc "$@"; }   # §2.1。Bash の呼び出しごとに定義し直す
+hc_raw send "$CODEX" "/stop"
+hc wait "$CODEX" --timeout 300
+hc get "$CODEX" --json | jq -c '{state, status, foreground: .foreground.name}'
+```
+
+`done` / `idle` になったことを確かめて §2.3 の完了確認に戻る。条件を満たさずまだ作業中なら `/stop` を送らず、§11 の **CODEX_DONE.md の条件なし**のループ（`--timeout 300`）で待ち直す。作業中のテストやサーバーを止めないため、ファイルが新しいだけで `/stop` を送らない。
 
 ---
 
@@ -1287,224 +879,81 @@ Codex がこれらを実行しようとして blocked になった場合、Claud
 
 ## 20. Claude Code 用の実行チェックリスト
 
-ユーザーが「Codex に実装を委譲して」「Herdr 経由で Codex にやらせて」などと言ったら、Claude Code は次を実行する。
-
 ```text
-[ ] task id を作る
-[ ] git worktree add で Git worktree を作り、.git/info/exclude に .ai/ を足す（herdr worktree create は使わない）
-[ ] Codex 用 workspace を作り、委譲元の直下へ移す（HERDR_PANE_ID があれば pane current → ラベル "└ <TASK_ID>" で workspace create → place-lane.sh で委譲元の直下へ。なければ単独 workspace。応答 JSON の root pane id を // empty 付きで控え、logs/lane.json に委譲元とレーンを記録する。--json は付けない）
-[ ] Codex worktree 内に .ai/tasks/<TASK_ID>/ を作る
-[ ] superpowers:brainstorming で要件・設計を固める
-[ ] superpowers:writing-plans に従って PLAN.md を書く
-[ ] CODEX_GOAL.md を書く
-[ ] Codex 用 workspace の root pane に Codex を起動する（agent start --kind codex --pane … -- --no-daemon。
-    agent_not_ready は起動ダイアログで止まっているだけなので、そのまま次の起動確認へ）
-[ ] 起動確認: agent get で生存確認（self-update 終了なら再 start）
-[ ] 起動確認: visible read でダイアログの有無と入力プロンプト「›」を確認する
-    （アップデートは "2" で Skip（0.160 は Enter 不要）、trust は enter で承認、
-      デーモン設定不一致は "1"、hooks レビュー画面は esc。状態は 0.9.1 以前は idle の
-      まま、0.9.3 以降は trust/アップデートが blocked で hooks レビュー画面は done のまま。
-      状態だけに頼らない。§9）
-[ ] 1行の /goal を agent prompt --wait --until idle --until done --until blocked --until unknown で送る
-    （timeout なし・run_in_background。抜け条件は状態だけで、marker を待つループは書かない。
-      agent_prompt_stalled / timeout なら visible read で画面確認 → 送達済みか
-      判断 → ダイアログ対処・Enter のみ・agent wait 合流のいずれか。§2.3・§10）
-[ ] §2.3 の「完了の確認」: 状態（working なら agent wait で待ち直す）・CODEX_DONE.md・
-    marker（空白・改行を除いて "•HERDR_TASK_DONE:<id>" を探す。完了は通常 done）
-[ ] 完了後に pane output / git diff / status を保存する
-[ ] CODEX_DONE.md を読む
-[ ] Claude Code がレビューして REVIEW-01.md を書く
-[ ] 問題があれば FIX-01.md を書いて同じ pane に再 /goal
-[ ] 最大3ラウンドまで繰り返す
-[ ] APPROVED なら REVIEW-FINAL.md を書く
-[ ] final logs を保存する
-[ ] Codex pane を閉じる（hunk pane を split していれば先に閉じる。workspace と `└` の行も消える）
-[ ] Claude Code が worktree でコミットする（.ai/ 混入なしを git status で確認）
-[ ] finishing-a-development-branch で merge / PR / reject を人間に確認する
-[ ] PR にするなら本文を yomiyasu で推敲してから gh pr create（§16.1。日本語で yomiyasu があるときだけ）
-[ ] worktree は merge / PR / reject まで残す
-[ ] merge / reject 後: git worktree remove + branch -d（reject は -D）で checkout とブランチを消す（必ず pane close の後）
+[ ] Step 0: check-versions.sh。core 再起動はユーザーに確認してから
+[ ] TASK_ID・名前・worktree の場所の空きを確認し、Git worktree を作る。info/exclude の .ai/ は重複させない
+[ ] HC_TERMINAL_ID → child、外でアプリ稼働 → space、それ以外 → hidden を選ぶ
+[ ] logs/lane.json に委譲元・モード・Codex の名前を記録
+[ ] brainstorming → writing-plans で PLAN.md、CODEX_GOAL.md を worktree 内に書く
+[ ] child/hidden は hc run --bg、space は space.new --argv。必ず codex --no-daemon
+[ ] child は --outlive-parent --no-notify。Codex に hc send で報告させない
+[ ] 起動応答を run.json に保存。space は返った terminal / space / tab を lane.json に記録
+[ ] hc get と hc read で起動確認。permissions の行と status.state=idle がそろうまで送らない（§9）
+[ ] trust は enter（esc は Quit）、hooks は esc。permissions の行と hooks を閉じた影響を REVIEW と人への報告に記録
+[ ] hidden ならユーザーに hc attach を案内
+[ ] §2.1 の hc_raw を定義し、送信マーカーを touch。1行 /goal を hc_raw send --wait --timeout 300 で送る（run_in_background、§10）
+[ ] 送信後の画面にタグが無く Goal active が出たことを確認。working かつ今回の報告が新しくない間だけ待つ
+[ ] 待ち結果は .wait.*。timeout はチェックイン。hc_raw では message を期待しない。not_started は画面確認
+[ ] working のまま今回の報告があれば §18.7 の条件を確認。作業中に無条件の /stop を送らない
+[ ] §2.3 の状態と CODEX_DONE.md の先頭行 Round を確認
+[ ] ログ・git diff・status・テスト結果を保存し、REVIEW-01.md を書く
+[ ] 任意で hunk のタブにレビューを可視化（§13.1。hidden では省く）
+[ ] 修正 goal の前に必ず hc_raw send で /goal clear を送り画面で確認。同じ Codex に FIX-NN.md を送り、Round と送信後の更新を照合（最大3回）
+[ ] APPROVED / ABORTED を REVIEW-FINAL.md に書き、final logs を保存
+[ ] hunk のタブを閉じてターミナルを hc kill → hc rm。Codex も hc kill → hc rm。作った space がまだあるときだけ閉じる
+[ ] Claude がコミットし、finishing-a-development-branch で merge / PR / reject を確認
+[ ] PR 本文は yomiyasu があれば推敲（§16.1）
+[ ] worktree は PR 中も残す。merge / reject 後、Codex 停止済みを確認して Git で消す
 ```
 
 ---
 
 ## 21. 参考 wrapper
 
-必要なら、Claude Code は以下の薄い wrapper を `scripts/ai-codex-herdr.sh` として作って使ってよい。
+必要なら以下の小さな関数だけを使う。起動・送信・ラウンド確認は本文の手順を使う。
 
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-resolve_pane_id() {
-  local agent="$1"
-  herdr agent get "$agent" | jq -r '.result.agent.pane_id? // empty' | head -n 1
+hc_raw() { env -u HC_TERMINAL_ID -u HC_SCOPE hc "$@"; }   # §2.1。Bash の呼び出しごとに定義し直す
+codex_status() {
+  hc get "$1" --json | jq -c '{state, status, exit_code, foreground: .foreground.name}'
+  hc read "$1"   # 画面全体で起動ダイアログと入力欄を確認する
 }
 
-read_agent_text() {
-  # agent read は plain text（0.7.5+。jq を通さない）
-  local agent="$1"
-  local lines="$2"
-  herdr agent read "$agent" --source recent-unwrapped --lines "$lines"
+codex_wait() {
+  # 送信には先に hc_raw send --wait を使う。この関数は working の待ち直し用。
+  while [ "$(hc get "$1" --json 2>/dev/null | jq -r '.status.state // empty')" = working ]; do
+    hc wait "$1" --timeout 300
+  done
+  hc get "$1" --json | jq -c '{state, status, foreground: .foreground.name}'
 }
-
-find_marker() {
-  # Codex が折り返した marker も拾えるよう、空白・改行を除いてから行頭の "•" 付きで
-  # 探し、最後に見つかったものを出す（goal のエコー行は "printHERDR_..." になり拾わない）。
-  # 履歴の読み取りは idle / done のときしかできないので、それ以外は visible を読む（§2.3）
-  local agent="$1"
-  local task_id="$2"
-  local status src=recent-unwrapped
-  status="$(herdr agent get "$agent" 2>/dev/null | jq -r '.result.agent.agent_status // empty' || true)"
-  case "$status" in idle|done) ;; *) src=visible ;; esac
-  herdr agent read "$agent" --source "$src" --lines 500 2>/dev/null \
-    | LC_ALL=C tr -d '[:space:]' \
-    | { grep -oE "•HERDR_TASK_(DONE|BLOCKED):$task_id(:fix-[0-9]{2})?" || true; } \
-    | tail -n 1
-}
-
-usage() {
-  cat >&2 <<'USAGE'
-usage:
-  ai-codex-herdr start <task_id> <pane_id> <task_dir>
-  ai-codex-herdr send-goal <task_id> <task_dir>
-  ai-codex-herdr wait <task_id> <task_dir>
-  ai-codex-herdr read <task_id>
-  ai-codex-herdr close <task_id> <task_dir>
-USAGE
-}
-
-cmd="${1:-}"
-shift || true
-
-case "$cmd" in
-  start)
-    task_id="${1:?task_id required}"
-    pane_id="${2:?pane_id required (§6 の workspace create の .result.root_pane.pane_id)}"
-    task_dir="${3:?task_dir required}"
-    agent="codex-$task_id"
-    mkdir -p "$task_dir/logs"
-
-    # agent start は既存 pane への起動（--kind --pane 必須）。ready 検出まで
-    # 待ってから返る（既定 30s）。cwd は pane から引き継がれる。
-    # 起動ダイアログで blocked になると agent_not_ready（exit 1）で返るが、起動確認へ進む（§9）
-    herdr agent start "$agent" --kind codex --pane "$pane_id" -- --no-daemon \
-      > "$task_dir/logs/agent-start.json" 2>&1 || true
-    jq -r '.result.agent.agent_status // .error.code // .' "$task_dir/logs/agent-start.json"
-
-    # 起動確認: self-update 即終了なら agent_not_found。ダイアログ
-    # （アップデート/trust 等）は状態だけでは判断できないので画面を目視確認する。
-    herdr agent get "$agent" | tee "$task_dir/logs/agent-get.json"
-    herdr agent read "$agent" --source visible --lines 40
-    ;;
-
-  send-goal)
-    task_id="${1:?task_id required}"
-    task_dir="${2:?task_dir required}"
-    agent="codex-$task_id"
-
-    goal_text="/goal Read .ai/tasks/$task_id/CODEX_GOAL.md and implement it exactly. When complete print HERDR_TASK_DONE:$task_id; if blocked print HERDR_TASK_BLOCKED:$task_id."
-
-    # 0.8.0 主経路: 送信 + 待ちを1コマンドで。バックグラウンドで実行する前提で
-    # timeout は付けず、working 以外（unknown を含む。§2.3）になった時点で返る。
-    # 送信後5秒以内に working|blocked が観測できなければ agent_prompt_stalled が
-    # 返る（→ visible read で画面確認。未送達とは限らないので §2.3 の判断に従う）。
-    herdr agent prompt "$agent" "$goal_text" --wait \
-      --until idle --until done --until blocked --until unknown \
-      > "$task_dir/logs/prompt-wait-result.json" 2>&1 \
-      || echo "warning: prompt failed (stalled?) — check visible screen" >&2
-    cat "$task_dir/logs/prompt-wait-result.json"
-
-    read_agent_text "$agent" 500 \
-      > "$task_dir/logs/codex-after-goal.txt" || true
-    echo "marker: $(find_marker "$agent" "$task_id")"
-    ;;
-
-  wait)
-    task_id="${1:?task_id required}"
-    task_dir="${2:?task_dir required}"
-    agent="codex-$task_id"
-
-    # 早く返った（作業中に一瞬 unknown になった）ときなどの待ち直し用。
-    # agent wait は現在の状態が一致していると即座に返るので、working のときだけ待つ。
-    status="$(herdr agent get "$agent" 2>/dev/null | jq -r '.result.agent.agent_status // empty' || true)"
-    if [ "$status" = "working" ]; then
-      herdr agent wait "$agent" \
-        --until idle --until done --until blocked --until unknown || true
-      status="$(herdr agent get "$agent" 2>/dev/null | jq -r '.result.agent.agent_status // empty' || true)"
-    fi
-
-    echo "status: ${status:-agent_not_found}"
-    # unknown で成果物も marker も無いときは、§2.3 のとおり短い agent wait で作業中かを確かめる
-    stamp="$(date +%Y%m%d-%H%M%S)"
-    read_agent_text "$agent" 500 \
-      > "$task_dir/logs/codex-pane-$stamp.txt" || true
-    echo "marker: $(find_marker "$agent" "$task_id")"
-    ls -l "$task_dir/CODEX_DONE.md" "$task_dir/BLOCKED.md" 2>/dev/null || true
-    ;;
-
-  read)
-    task_id="${1:?task_id required}"
-    agent="codex-$task_id"
-    read_agent_text "$agent" 200
-    ;;
-
-  close)
-    task_id="${1:?task_id required}"
-    task_dir="${2:?task_dir required}"
-    agent="codex-$task_id"
-    pane_id="$(resolve_pane_id "$agent")"
-    test -n "$pane_id"
-
-    mkdir -p "$task_dir/logs"
-    read_agent_text "$agent" 500 \
-      > "$task_dir/logs/codex-final-pane.txt"
-
-    herdr pane close "$pane_id"
-    ;;
-
-  *)
-    usage
-    exit 2
-    ;;
-esac
 ```
+
+Bash の `run_in_background` で待ち、sleep は使わない。関数が返っただけで完了扱いせず、§2.3 の確認を行う。
 
 ---
 
 ## 22. Claude Code への最終指示
 
-Claude Code は、このワークフローでは次を厳守する。
-
 ```text
-- Codex にいきなり実装させず、先に PLAN.md を作る。
-- PLAN.md の前に superpowers:brainstorming、執筆に superpowers:writing-plans を使う。
-- Codex に長文を直接 paste せず、1行の /goal で CODEX_GOAL.md を読ませる。
-- Herdr は agent CLI を主軸にし、/goal は agent prompt --wait で送って待つ。
-  pane CLI は pane 用意 / send-text / close に使う（marker の検出に wait-output は使わない）。
-- socket API は §6 のレーンの並べ替え（place-lane.sh）だけに使う。
-- Codex レーンは git worktree add + 委譲元の直下に置く専用 workspace（疑似ツリー。§6）に作り、その root pane に `--no-daemon` で起動する（agent start --kind codex --pane … -- --no-daemon）。herdr worktree create は使わない。
-- 起動直後に送信しない。生存確認と visible read（ダイアログ有無）を先に行う。
-  ダイアログの状態判定（idle / blocked）は herdr の版と検出 manifest で変わるので、
-  状態だけに頼らず画面で判断する（§9）。hooks レビュー画面は遅れて出て goal を
-  飲み込み、prompt --wait が done を返すことがある — marker がなければ画面を確認する。
-- 完了待ちは agent prompt --wait --until idle --until done --until blocked --until unknown
-  を timeout なしでバックグラウンド実行する（herdr 0.9.3 以前の Codex は応答後に unknown のまま残ることがある）。
-  抜け条件は状態だけにし、marker を待つループを書かない。返ったら §2.3 の「完了の確認」。
-  完了状態は通常 done（CLI 駆動では未読完了が done。0.8.0 公式セマンティクス）。
-- agent_prompt_stalled / timeout が返ったら画面確認 → 送達済みか判断 → 対処
-  （盲目的な再送はしない。§2.3）。herdr 側の偽 done は 0.8.0 以降ないが、goal が Codex のダイアログ（hooks レビュー画面等）に飲み込まれると done で返る（§9）。
-- agent read / pane read は plain text。jq を通さない（agent get 等の JSON とは別）。
-  JSON がデフォルトなので --json は付けない。
-- marker は agent read の出力から空白・改行を除き、"•HERDR_TASK_DONE:<id>" の形で探す。
-  Codex は pane の幅で marker を折り返すことがあり、pane wait-output（1行ずつ照合）や
-  行頭アンカーの regex では見つからない。素の substring だと goal エコー行に偽マッチする。
-  marker は補助で、主な判断材料は CODEX_DONE.md と diff。
-- 「完了の確認」（状態・CODEX_DONE.md・marker）はレビュー開始トリガーであり、pane close トリガーではない。
-- pane は Claude Code が APPROVED または ABORTED を書いた後に閉じる。
-- 修正が必要なら同じ Codex pane に FIX-N.md を再 /goal する。
-- 3ラウンド以上は自動で回し続けない。
-- 承認後のコミットは Claude Code が行い、merge / PR / reject は
-  finishing-a-development-branch で人間に確認する。勝手に merge しない。
-- source of truth は task files と git diff と test 結果であり、画面出力だけではない。
+- PLAN.md の前に brainstorming、執筆に writing-plans を使う。
+- 詳細はファイル、Codex には1行 /goal で渡す。
+- 起動・制御・待ちは hc、画面変更は限定した herdr-app do に分ける。
+- child / space / hidden を判定し、どの Claude が起動したかを lane.json に残す。
+- 必ず codex --no-daemon。親のある起動は --outlive-parent --no-notify を付ける。
+- Codex に hc send で報告させない。報告は CODEX_DONE.md / BLOCKED.md。
+- 起動直後に送信せず、hc get と hc read で入力欄とダイアログを確認する。
+- Codex への送信はすべて hc_raw send。送信後の画面でタグ無しと Goal active / コマンド応答を確認する。
+- 初回も修正も送信マーカーを touch し、hc_raw send --wait --timeout 300 で待つ。待ち結果は .wait.*。
+- working かつ今回の報告が新しくない間は hc wait。新しい報告があれば §18.7 の条件を確認する。
+- hc_raw では message を期待せず、timeout のチェックインで確認する。sleep で回さない。
+- not_started や成果物なしの done / idle で盲目的に再送しない。画面を読む。
+- hc_raw send --force でダイアログや権限の判断を飛ばさない。
+- 完了は状態と今回の Round の CODEX_DONE.md で判断する。
+- 完了確認はレビュー開始の条件であり、停止の条件ではない。
+- 修正は同じ Codex のターミナルで最大3ラウンド。毎回必ず /goal clear をタグ無しで送り、消えたことを確認してから修正 goal を送る。
+- APPROVED / ABORTED と画面の記録保存の後に、hunk タブとターミナルを消し、Codex を hc kill + hc rm。作った space がまだあるときだけ閉じる。
+- ユーザーの他のターミナル・space・既定 core を止めない。
+- 承認後のコミットは Claude が行い、merge / PR / reject は finishing-a-development-branch で確認する。
+- Codex を止めてから worktree を消す。PR 中は残す。
+- source of truth は task files と git diff とテスト結果。画面出力だけではない。
 ```

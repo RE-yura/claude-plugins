@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dev-workflow: 委譲ワークフローの外部依存を versions.json の検証済み値と突き合わせる。
 # 委譲開始前の Step 0 として実行する。常に exit 0（警告であってブロックではない）。
-# WARN が出た場合は、止まるのではなく指示された確認（herdr --skill / usage 照合）を
+# WARN が出た場合は、止まるのではなく指示された確認（hc --skill / --help 照合）を
 # してから進むこと。
 set -u
 
@@ -45,56 +45,51 @@ warn_count=0
 
 say "[dev-workflow] 依存バージョンチェック（versions.json: ${VERIFIED_AT} 検証）"
 
-# --- herdr: same-minor ---
-HERDR_VERIFIED=$(jq -r '.dependencies.herdr.verified' "$MANIFEST")
-if command -v herdr >/dev/null 2>&1; then
-  herdr_ver=$(herdr --version 2>/dev/null | awk '{print $2}')
-  if [ -z "$herdr_ver" ]; then
-    echo "WARN    herdr — バージョンを取得できない（herdr --version の出力形式が変わった可能性。検証済みは ${HERDR_VERIFIED}）"
+# --- hc: same-minor と稼働中 core の版 ---
+HC_VERIFIED=$(jq -r '.dependencies.hc.verified' "$MANIFEST")
+if command -v hc >/dev/null 2>&1; then
+  hc_ver=$(hc --version 2>/dev/null | awk '{print $2}')
+  if [ -z "$hc_ver" ]; then
+    echo "WARN    hc — バージョンを取得できない（hc --version の出力形式が変わった可能性。検証済みは ${HC_VERIFIED}）"
     warn_count=$((warn_count + 1))
-  elif [ "$(major_minor "$herdr_ver")" = "$(major_minor "$HERDR_VERIFIED")" ]; then
-    say "OK      herdr ${herdr_ver}（検証済み ${HERDR_VERIFIED} と same-minor 一致）"
   else
-    echo "WARN    herdr ${herdr_ver} — 検証済み ${HERDR_VERIFIED} と minor が異なる。CLI が破壊的に変わっている可能性が高い（0.7.4→0.7.5→0.8.0 で実証）。herdr --skill と各コマンドの usage を workflow.md と突き合わせてから進むこと"
-    warn_count=$((warn_count + 1))
-  fi
+    if [ "$(major_minor "$hc_ver")" = "$(major_minor "$HC_VERIFIED")" ]; then
+      say "OK      hc ${hc_ver}（検証済み ${HC_VERIFIED} と same-minor 一致）"
+    else
+      echo "WARN    hc ${hc_ver} — 検証済み ${HC_VERIFIED} と minor が異なる。hc --skill と各コマンドの --help を workflow.md と突き合わせてから進むこと"
+      warn_count=$((warn_count + 1))
+    fi
 
-  # --- herdr が検証済みより新しいときの確認事項（versions.json の on_newer） ---
-  # 待っている upstream の機能が入ったかを、herdr を上げたときに確かめるための知らせ。
-  # 件数には数えない（INFO）。
-  HERDR_ON_NEWER=$(jq -r '.dependencies.herdr.on_newer // empty' "$MANIFEST")
-  if [ -n "$herdr_ver" ] && [ -n "$HERDR_ON_NEWER" ] && [ "$herdr_ver" != "$HERDR_VERIFIED" ] \
-    && version_ge "$herdr_ver" "$HERDR_VERIFIED"; then
-    say "INFO    herdr ${herdr_ver} は検証済み ${HERDR_VERIFIED} より新しい — ${HERDR_ON_NEWER}"
-  fi
-
-  # --- herdr client/server 整合 ---
-  # herdr --version は PATH 上の client しか見ない。0.9.0 で protocol が 20→22 に
-  # 上がった際、mise で入れ替えた後も既存シェルの PATH に旧 client が残り、
-  # agent/workspace 系が全て protocol_mismatch（exit 0 の JSON エラー）になった（実測）。
-  # herdr status の server セクションを見て検出する。
-  if [ -n "$herdr_ver" ]; then
-    status_out=$(herdr status 2>/dev/null)
-    server_status=$(printf '%s\n' "$status_out" | awk '/^server:/{s=1; next} /^[^ ]/{s=0} s && $1=="status:"{sub(/^ *status: */, ""); print}')
-    server_ver=$(printf '%s\n' "$status_out" | awk '/^server:/{s=1; next} /^[^ ]/{s=0} s && $1=="version:"{print $2}')
-    if [ "$server_status" = "running" ]; then
-      if printf '%s\n' "$status_out" | grep -Eq '^ *[a-z_]*compatible: *no'; then
-        echo "WARN    herdr client ${herdr_ver} / server ${server_ver:-?} — protocol が不一致（herdr status: compatible: no）。この状態では herdr agent/workspace 系が全て protocol_mismatch エラー（exit 0 の JSON）になる。新しいシェルを開くか mise shims の herdr を使い、client を server に揃えてから進むこと"
-        warn_count=$((warn_count + 1))
-      elif [ -n "$server_ver" ] && [ "$server_ver" != "$herdr_ver" ]; then
-        echo "WARN    herdr client ${herdr_ver} / server ${server_ver} — バージョンが異なる（protocol は互換）。新機能や挙動差は server 側に依存する。herdr status の update 行を確認し、必要なら herdr を再起動して揃えること"
-        warn_count=$((warn_count + 1))
+    # CLI だけ更新されて core が古いままのケースも検出する。勝手に再起動しない。
+    if core_status=$(hc server status --json 2>/dev/null) \
+      && core_ver=$(printf '%s' "$core_status" | jq -er '.version | select(type == "string" and length > 0)' 2>/dev/null); then
+      if [ "$core_ver" = "$hc_ver" ]; then
+        say "OK      hc core ${core_ver} running（CLI と一致）"
       else
-        say "OK      herdr server ${server_ver:-?} running（client と一致）"
+        echo "WARN    hc CLI ${hc_ver} / core ${core_ver} — バージョンが異なる。core の再起動はユーザーに確認してから（他のターミナルにも影響する）"
+        warn_count=$((warn_count + 1))
       fi
     else
-      echo "WARN    herdr server が起動していない（herdr status: ${server_status:-取得不可}）。委譲ワークフローは server の socket API 経由で動くため、herdr を起動してから進むこと"
+      echo "WARN    hc core に接続できない（hc server status --json）。接続先を確認してから進むこと。core の再起動はユーザーに確認してから"
       warn_count=$((warn_count + 1))
     fi
   fi
 else
-  echo "MISSING herdr — 委譲ワークフローは実行できない（https://herdr.dev、導入後 herdr integration install codex）"
+  echo "MISSING hc — 委譲ワークフローは実行できない（herdr-core を導入すること）"
   warn_count=$((warn_count + 1))
+fi
+
+# --- herdr-app: info（無くても委譲可能。見せ方が変わるだけ） ---
+APP_VERIFIED=$(jq -r '.dependencies["herdr-app"].verified' "$MANIFEST")
+if command -v herdr-app >/dev/null 2>&1; then
+  app_ver=$(herdr-app --version 2>/dev/null | awk '{print $2}')
+  if [ -n "$app_ver" ]; then
+    say "OK      herdr-app ${app_ver}（検証済み ${APP_VERIFIED}。見せ方だけに使う任意のアプリ）"
+  else
+    say "INFO    herdr-app — バージョンを取得できない（検証済み ${APP_VERIFIED}。無くても委譲可能）"
+  fi
+else
+  say "INFO    herdr-app — 見つからない（無くても委譲可能。hc attach で画面を見られる）"
 fi
 
 # --- codex: minimum ---

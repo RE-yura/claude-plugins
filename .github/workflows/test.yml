@@ -34,6 +34,3 @@ jobs:
 
       - name: workflow.md の節番号参照のテスト
         run: plugins/dev-workflow/tests/test-section-refs.sh
-
-      - name: place-lane.sh のテスト
-        run: plugins/dev-workflow/tests/test-place-lane.sh

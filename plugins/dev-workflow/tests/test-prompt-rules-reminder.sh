@@ -89,6 +89,8 @@ assert_exit_zero "explain誤マッチ防止"
 # --- ケース4: 委譲キーワード → Codex Reminder のみ ---------------------------
 run_hook "Codex にやらせて"
 assert_contains "委譲: Codex Reminder" "$CODEX_LINE"
+assert_contains "委譲: 起動手順" "hc run で起動して 1行 /goal"
+assert_contains "委譲: 待ち手順" "hc send --wait で待つ"
 assert_not_contains "委譲: 設計 Reminder は出ない" "$DESIGN_LINE"
 assert_exit_zero "委譲"
 
@@ -122,6 +124,17 @@ assert_exit_zero "非JSON"
 run_hook_raw '{"other": "設計"}'
 assert_empty_output "promptキーなし"
 assert_exit_zero "promptキーなし"
+
+# --- hc は単語でだけ反応する ------------------------------------------------
+run_hook "use hc for this"
+assert_contains "hc単語: Codex Reminder" "$CODEX_LINE"
+assert_exit_zero "hc単語"
+run_hook "use HC for this"
+assert_contains "HC大文字: Codex Reminder" "$CODEX_LINE"
+assert_exit_zero "HC大文字"
+run_hook "check chc and hcl files"
+assert_empty_output "hc部分文字列: 誤反応しない"
+assert_exit_zero "hc部分文字列"
 
 # --- 結果 --------------------------------------------------------------------
 echo ""

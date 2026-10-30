@@ -9,15 +9,15 @@ yura の Claude Code プラグイン marketplace。
 Claude Code は放っておくと設計も実装も自分でやってしまい、計画を書かずに手を動かし始めることもある。このプラグインを入れると、次の2つのルールが**モデルの気分に依存せず**毎回適用される：
 
 1. **設計ドキュメント・実装計画を書くときは、必ず superpowers の brainstorming（要件・設計の探索）→ writing-plans（計画書の執筆）を通す** — いきなり書き始めない
-2. **実装・修正は Codex CLI に委譲する** — Claude が計画ファイルを書き、herdr 経由で Codex に `/goal` を送り、完了を待ってレビューし、必要なら修正を依頼するループを回す。手順書（`workflow.md`、実機検証済み）を同梱
+2. **実装・修正は Codex CLI に委譲する** — Claude が計画ファイルを書き、herdr-core (`hc`) 経由で Codex に `/goal` を送り、完了を待ってレビューし、必要なら修正を依頼するループを回す。手順書（`workflow.md`。hc 版の委譲一巡は E2E で確認する）を同梱
 
 ### 仕組み
 
 | コンポーネント | 役割 |
 |---|---|
 | SessionStart hook | 上記ルール2本を**毎セッション開始時に無条件で注入**（CLAUDE.md をどのプロジェクトにも持ち歩くのと同じ効果） |
-| UserPromptSubmit hook | プロンプトのキーワードに応じて**その瞬間にルールを再注入**。設計/実装/計画/考え/design/plan 等 → ルール1、codex/herdr/委譲/任せ 等 → ルール2。長いセッションで文脈が薄れても効く |
-| `delegating-to-codex` スキル | 委譲ワークフローの正本。worktree 隔離、委譲元 workspace の直下に並ぶタスク専用 workspace（疑似ツリー）、1行 `/goal`、完了検知（idle+marker）、REVIEW/FIX ループ（最大3回）、安全ルールまでの完全な手順書 |
+| UserPromptSubmit hook | プロンプトのキーワードに応じて**その瞬間にルールを再注入**。設計/実装/計画/考え/design/plan 等 → ルール1、codex/herdr/hc/委譲/任せ 等 → ルール2。長いセッションで文脈が薄れても効く |
+| `delegating-to-codex` スキル | 委譲ワークフローの正本。worktree 隔離、hc 内では Claude の子、外では Herdr アプリのタスク用 space（アプリが無ければ `hc attach`）、1行 `/goal`、完了検知（OSC 7501 の状態 + 今回の `Round:` の `CODEX_DONE.md`）、REVIEW/FIX ループ（最大3回）、安全ルールまでの完全な手順書 |
 
 ### 使い方
 
@@ -37,9 +37,10 @@ Codex に実装を委譲して         → delegating-to-codex スキルが起�
 | 必要なもの | 何のために | 導入方法 |
 |---|---|---|
 | superpowers プラグイン | ルール1が参照する brainstorming / writing-plans スキルの提供元 | `claude plugin install superpowers@claude-plugins-official`（公式 marketplace、デフォルトで登録済み） |
-| [herdr](https://herdr.dev) | Codex を pane として起動・監視・操作するターミナルワークスペースマネージャ | [herdr.dev/docs/install](https://herdr.dev/docs/install/) 参照。導入後 `herdr integration install codex` で状態検知を有効化 |
+| herdr-core (`hc`) | Codex を永続ターミナルで起動・監視・操作する（検証済み 0.1.14） | Herdr の配布から herdr-core を導入。integration install は不要 |
+| Herdr アプリ (`herdr-app`、任意) | Codex を Claude の子またはタスク用 space として見せる（検証済み 0.1.8） | 無くても委譲可能。`hc attach` で画面を見られる |
 | [Codex CLI](https://developers.openai.com/codex/cli) | 実装担当。`/goal`（長時間自律実行モード）を使う | 0.144+ は `/goal` 既定有効。slash command list に出ない場合のみ `codex features enable goals` |
-| jq | herdr の JSON 出力のパース | `brew install jq` |
+| jq | hc / herdr-app の JSON 出力のパース | `brew install jq` |
 | [yomiyasu](https://github.com/nanaism/yomiyasu) プラグイン（任意） | PR の本文の推敲。無ければその段を飛ばす | `claude plugin marketplace add nanaism/yomiyasu` → `claude plugin install yomiyasu@yomiyasu` |
 
 ## 導入

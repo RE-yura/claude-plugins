@@ -1,12 +1,17 @@
 {
-  "verified_at": "2026-08-04",
+  "verified_at": "2026-10-30",
   "dependencies": {
-    "herdr": {
-      "verified": "0.8.0",
+    "hc": {
+      "verified": "0.1.14",
       "policy": "same-minor",
-      "check": "herdr --version",
-      "note": "テスト用 fixture（実物の skills/delegating-to-codex/versions.json とは独立）",
-      "on_newer": "テスト用: 新しい版のリリースノートを確認する"
+      "check": "hc --version",
+      "note": "テスト用 fixture（実物の versions.json とは独立）"
+    },
+    "herdr-app": {
+      "verified": "0.1.8",
+      "policy": "info",
+      "check": "herdr-app --version",
+      "note": "テスト用 fixture。任意。"
     },
     "codex": {
       "verified": "0.145.0",
@@ -30,7 +35,7 @@
     "jq": {
       "policy": "presence",
       "check": "jq --version",
-      "note": "テスト用 fixture"
+      "note": "hc の JSON 出力のパース"
     }
   }
 }

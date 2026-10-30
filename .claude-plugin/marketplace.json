@@ -9,7 +9,7 @@
     {
       "name": "dev-workflow",
       "source": "./plugins/dev-workflow",
-      "description": "開発運用ルール一式: 設計ドキュメントは brainstorming→writing-plans、Codex への実装委譲は herdr + /goal (delegating-to-codex スキル)。SessionStart でルールを常時注入し、委譲キーワードでスキル使用をリマインドする。"
+      "description": "開発運用ルール一式: 設計ドキュメントは brainstorming→writing-plans、Codex への実装委譲は herdr-core (hc) + /goal (delegating-to-codex スキル)。SessionStart でルールを常時注入し、委譲キーワードでスキル使用をリマインドする。"
     }
   ]
 }
